@@ -1,0 +1,87 @@
+:root {
+  color-scheme: light dark;
+  font-family: "Segoe UI", sans-serif;
+  font-size: 13px;
+}
+
+body {
+  margin: 0;
+  width: 320px;
+  background: #f6f3ee;
+  color: #1c1917;
+}
+
+main {
+  padding: 14px;
+}
+
+h1 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+
+.muted {
+  color: #57534e;
+}
+
+.card {
+  margin-top: 10px;
+  padding: 10px;
+  background: #fff;
+  border: 1px solid #e7e0d6;
+  border-radius: 8px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+#folder {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+button {
+  border: 0;
+  border-radius: 6px;
+  padding: 7px 10px;
+  background: #9a3412;
+  color: #fff;
+  cursor: pointer;
+}
+
+button:disabled {
+  background: #d6d3d1;
+  color: #78716c;
+  cursor: default;
+}
+
+#error {
+  color: #9f1239;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #1c1917;
+    color: #fafaf9;
+  }
+
+  .muted {
+    color: #a8a29e;
+  }
+
+  .card {
+    background: #292524;
+    border-color: #44403c;
+  }
+}

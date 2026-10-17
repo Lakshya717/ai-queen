@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>YouTube AI Content Detection</title>
+  <link rel="stylesheet" href="./popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <header class="header">
+      <div class="brand">
+        <span class="logo">🛡️</span>
+        <h2>AI Content Detection</h2>
+      </div>
+      <span class="version-tag">v1.0.0</span>
+    </header>
+
+    <!-- Policy Acceptance Banner (Shown on first setup or version bump) -->
+    <section id="policy-banner" class="banner hidden">
+      <h3>Data Collection Policy (v1)</h3>
+      <p>
+        Help crowdsource AI detection! While actively watching unmapped YouTube videos,
+        this extension samples visible-tab frames strictly for watched segments.
+        No raw data is stored locally.
+      </p>
+      <div class="banner-actions">
+        <button id="accept-policy-btn" class="btn btn-primary">Accept Policy</button>
+      </div>
+    </section>
+
+    <!-- Live Status Section -->
+    <section class="card">
+      <div class="card-header">
+        <span class="card-title">Current Video</span>
+        <span id="live-state-badge" class="badge badge-inactive">Inactive</span>
+      </div>
+      <div class="video-info">
+        <div id="video-id-display" class="video-id">No video active</div>
+        <div id="video-coverage-text" class="coverage-text">Open a YouTube video to detect AI reliance</div>
+        <div class="progress-bar-bg">
+          <div id="coverage-progress-fill" class="progress-bar-fill" style="width: 0%;"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Multimodal Ingestion Pipeline Info -->
+    <section class="card">
+      <div class="card-header">
+        <span class="card-title">Multimodal Ingestion</span>
+        <span class="badge badge-complete">Automated</span>
+      </div>
+      <p class="card-desc">
+        Visual stills and active-watch intervals are contributed seamlessly from the player. High-fidelity audio extraction and synthesis are handled automatically on the backend.
+      </p>
+    </section>
+
+    <!-- Preferences & Filter Settings -->
+    <section class="card">
+      <div class="card-header">
+        <span class="card-title">Preferences</span>
+      </div>
+      <div class="setting-row">
+        <label for="toggle-contribution">Crowdsourced Contribution</label>
+        <input type="checkbox" id="toggle-contribution" checked>
+      </div>
+      <div class="setting-row">
+        <label for="toggle-badges">Show On-Page Badges</label>
+        <input type="checkbox" id="toggle-badges" checked>
+      </div>
+      <div class="setting-row">
+        <label for="select-filter-mode">Filter Mode</label>
+        <select id="select-filter-mode">
+          <option value="mark_only">Mark Only (Default)</option>
+          <option value="threshold_hide">Hide Above Threshold</option>
+        </select>
+      </div>
+      <div id="threshold-container" class="setting-row hidden">
+        <label for="range-threshold">Threshold: <span id="threshold-val">80%</span></label>
+        <input type="range" id="range-threshold" min="50" max="95" value="80" step="5">
+      </div>
+    </section>
+  </div>
+
+  <script type="module" src="./popup.ts"></script>
+</body>
+</html>

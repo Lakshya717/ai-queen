@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>YouTube Watch Capture</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Watch capture</h1>
+      <p id="page" class="muted">Checking this tab…</p>
+      <section class="card">
+        <div class="row">
+          <span id="folder">No folder selected</span>
+          <button id="choose" type="button">Choose folder</button>
+        </div>
+        <button id="allow" type="button" hidden>Allow folder access</button>
+      </section>
+      <section class="card">
+        <p id="title"></p>
+        <p id="progress" class="muted">No saved timeline yet.</p>
+        <p id="counts" class="muted"></p>
+        <p id="error" class="error" hidden></p>
+      </section>
+      <div class="actions">
+        <button id="start" type="button">Start</button>
+        <button id="stop" type="button">Stop</button>
+        <button id="send-api" type="button" disabled title="Coming later">Send to API</button>
+      </div>
+    </main>
+    <script src="../lib/idb.js"></script>
+    <script src="../lib/upload.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

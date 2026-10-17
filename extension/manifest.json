@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube AI-Content Detection",
+  "version": "1.0.0",
+  "description": "Crowdsourced Client-Side AI Content Detection Extension for YouTube",
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*",
+    "https://api.aidetect-crowdsourced.org/*"
+  ],
+  "background": {
+    "service_worker": "src/contexts/background.ts",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "YouTube AI Detection",
+    "default_popup": "src/contexts/popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/*"
+      ],
+      "js": [
+        "src/contexts/content.ts"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
