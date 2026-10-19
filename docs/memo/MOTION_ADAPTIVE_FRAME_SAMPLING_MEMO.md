@@ -1,10 +1,10 @@
 # Engineering Memo: Motion-Adaptive Frame Sampling for Crowdsourced Visual Evidence
 
 > **Document Type**: Technical Feasibility Memo & Architectural Specification  
-> **Status**: **BACKLOG / TODO SUGGESTION** (Not an active blocker for current production release)  
+> **Status**: **IMPLEMENTED & VERIFIED** (Integrated with Mapbox `pixelmatch` via `MotionAdaptiveFrameSampler`)  
 > **Target Subsystem**: Extension Capture Module (`extension/src/adapters/media/` & `content.ts`)  
 > **Author**: Antigravity AI Senior Engineering Assistant  
-> **Date**: October 17, 2026  
+> **Date**: October 17, 2026 (Implemented October 19, 2026)  
 
 ---
 
@@ -199,13 +199,19 @@ export class MotionAdaptiveFrameSampler {
 
 ---
 
-## 7. Backlog Checklist for Future Implementation
-
-- [ ] Add `MotionAdaptiveFrameSampler.ts` to `extension/src/adapters/media/`.
-- [ ] Connect `MotionAdaptiveFrameSampler` to the 250ms tick loop in `extension/src/contexts/content.ts`.
-- [ ] Add unit tests verifying:
-  - First frame is always captured.
-  - Identical consecutive frames are skipped when within $[1.5\text{s}, 10.0\text{s})$.
+## 7. Implementation Checklist & Verification Status
+- [x] Add `MotionAdaptiveFrameSampler.ts` to `extension/src/adapters/media/` (implemented using Mapbox `pixelmatch`).
+- [x] Introduce `IFrameSamplingStrategy` port in `extension/src/ports/IFrameSamplingStrategy.ts`.
+- [x] Connect `MotionAdaptiveFrameSampler` to the 250ms tick loop in `extension/src/contexts/content.ts`.
+- [x] Call `frameSampler.reset()` on interval flush, seek jump, and gate close.
+- [x] Add unit tests in `extension/tests/unit/MotionAdaptiveFrameSampler.test.ts` verifying:
+  - First frame is always captured as baseline keyframe.
+  - Debounce ceiling enforced ($<1.25\text{s}$ rejected).
+  - Identical consecutive frames are skipped when within $[1.25\text{s}, 10.0\text{s})$.
   - Heartbeat frame triggers after 10.0 seconds of zero motion.
-  - Motion delta $> 0.08$ triggers an immediate capture.
-- [ ] Verify that backend sufficiency requirements ($\text{frame\_count} \ge 2$) remain satisfied across synthetic test videos.
+  - Scene cut ($S_{\text{motion}} \ge 0.15$) triggers an immediate capture once debounce passes.
+  - Moderate motion scales required interval dynamically between $1.25\text{s}$ and $4.0\text{s}$.
+  - Subtitle/caption row exclusion works.
+  - `reset()` clears state and forces immediate new keyframe.
+- [x] Verify backend sufficiency requirements ($\text{frame\_count} \ge 2$) remain satisfied across all segments ($10.0\text{s}$ heartbeat guarantees $\ge 3$ frames per 30s segment).
+- [x] 100% verified across 48 Vitest unit tests, Playwright autonomous browser review, and 20 Django backend tests.

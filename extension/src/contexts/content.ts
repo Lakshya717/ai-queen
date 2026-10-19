@@ -5,6 +5,7 @@ import { ObservedIntervalTracker, type IntervalFlushEvent } from '../domain/serv
 import { SegmentScheduler } from '../domain/services/SegmentScheduler';
 import { ConfigurableFixedSegmentationStrategy } from '../domain/services/SegmentationStrategy';
 import { InPageMediaCaptureAdapter } from '../adapters/media/InPageMediaCaptureAdapter';
+import { MotionAdaptiveFrameSampler } from '../adapters/media/MotionAdaptiveFrameSampler';
 import { YouTubeDomTranscriptAdapter } from '../adapters/youtube/YouTubeDomTranscriptAdapter';
 import { BadgePresenter } from '../extensions/badges/BadgePresenter';
 import { MarkOnlyFilterStrategy } from '../extensions/filtering/MarkOnlyFilterStrategy';
@@ -28,6 +29,7 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
 
   let activeVideoElement: HTMLVideoElement | null = null;
   const mediaAdapter = new InPageMediaCaptureAdapter(() => activeVideoElement);
+  const frameSampler = new MotionAdaptiveFrameSampler();
 
   let currentVideoId: string | null = null;
   let currentLookup: VideoLookupResponseDto | null = null;
@@ -266,9 +268,8 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
       // Track playback interval advance
       intervalTracker.onPlaybackTick(t, wallClockDeltaMs, activeVideoElement.playbackRate || 1.0);
 
-      // Sample screenshot every 5s of video playback time
-      if (lastFrameCaptureTime < 0 || Math.abs(t - lastFrameCaptureTime) >= 5.0) {
-        lastFrameCaptureTime = t;
+      // Motion-adaptive frame sampling based on pixel movement (via pixelmatch)
+      if (activeVideoElement && frameSampler.shouldSample(activeVideoElement, t)) {
         const frame = await mediaAdapter.captureFrame(t);
         if (frame) {
           accumulatedFrames.push(frame);
@@ -282,6 +283,7 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
 
         intervalTracker.flushOnGateClose(t);
         lastFrameCaptureTime = -1;
+        frameSampler.reset();
       }
     }
   }
@@ -337,6 +339,7 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
   function resetEvidenceAccumulators() {
     accumulatedFrames.length = 0;
     currentSegmentIndex = null;
+    frameSampler.reset();
   }
 
   function isAdShowing(): boolean {

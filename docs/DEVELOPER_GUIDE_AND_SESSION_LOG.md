@@ -31,6 +31,8 @@ To ensure complete transparency and prevent conflation across distinct developme
 | [`backend/apps/content/services/youtube_audio_service.py`](file:///C:/Users/Lakshya/Desktop/AI%20Project/backend/apps/content/services/youtube_audio_service.py) | **Other Agentic Session (Separate Review)** | *Experimental / Pending Review* | Server-side audio extraction using `yt-dlp` and `imageio-ffmpeg` stream slicing. |
 | [`docs/memo/WALKTHROUGH.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/WALKTHROUGH.md) | **Other Agentic Session (Separate Review)** | *Technical Memo* | Walkthrough authored by the other session detailing `Qp2zfpqogxU`, Chromium WebM bug resolution, and the server-side audio transition. |
 | [`docs/memo/MOTION_ADAPTIVE_FRAME_SAMPLING_MEMO.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/MOTION_ADAPTIVE_FRAME_SAMPLING_MEMO.md) | **Other Agentic Session (Separate Review)** | *Backlog Proposal* | Senior research memo specifying 32x32 luminance delta motion-adaptive frame sampling (~55% payload reduction). |
+| [`docs/memo/TEAM_REPOSITORY_COMPATIBILITY_AND_ADAPTATION_REVIEW.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/TEAM_REPOSITORY_COMPATIBILITY_AND_ADAPTATION_REVIEW.md) | **THIS Agentic Session (Phase 3)** | *Technical Review & Forensic Audit* | Comprehensive compatibility review of team member V. Kannabiran's repository (`kannabiran-v005/AI_Project`), root causes of video compression failure (AUC 0.389), and production adaptation plan. |
+| [`docs/memo/AI_MODEL_ENSEMBLE_SPECIFICATION.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/AI_MODEL_ENSEMBLE_SPECIFICATION.md) | **THIS Agentic Session (Phase 3)** | *Technical Specification* | Concrete technical specification for Milestone B5 Multimodal Inference Engine, Top-2 frame aggregation, dynamic Bayesian fusion math, and Django async worker service. |
 | `docs/plans/server_side_audio_pipeline...md` & others | **Other Agentic Session (Separate Review)** | *Engineering Plans* | Series of plans authored by the other session for server-side audio, tab capture UX, and documentation reorganization. |
 
 ---
@@ -206,9 +208,9 @@ The repository maintains 100% green verification status across all subsystems:
 
 | Subsystem | Test Harness | Suite Scope | Key Invariants Verified | Result |
 |---|---|---|---|---|
-| **Extension Domain Core** | Vitest (`npm test`) | 5 suites / 40 tests | Half-open intervals $[0, 30)$, observation clamping $[10, 30)$, active-watch gate closure (<50ms), 7 badge states, opt-in fail-open filtering, storage privacy zero-leakage invariant. | **100% Passed** |
-| **Extension Browser Review** | Playwright (`npm run test:e2e`) | Real Chromium instance | Service worker registration, popup onboarding policy acceptance, DOM badge mounting on YouTube fixture, active-watch gate, chrome.storage privacy check. | **100% Passed** |
-| **Backend Ingestion & Math** | Django Test Runner (`python manage.py test`) | 5 test modules / 19 tests | Boundary clamping, overlapping interval merges, 0.25s epsilon tolerance, multi-viewer segment completion, Base64 JPEG decoding, SHA-256 transcript deduplication, manifest builder, REST endpoints. | **100% Passed** |
+| **Extension Domain Core** | Vitest (`npm test`) | 6 suites / 48 tests | Half-open intervals $[0, 30)$, observation clamping $[10, 30)$, active-watch gate closure (<50ms), 7 badge states, opt-in fail-open filtering, storage privacy zero-leakage, and **motion-adaptive frame sampling via Mapbox `pixelmatch`** (debounce ceiling, static suppression, heartbeat, scene cut acceleration, subtitle immunity). | **100% Passed (48/48 tests)** |
+| **Extension Browser Review** | Playwright (`npm run test:e2e`) | Real Chromium instance | Service worker registration, popup onboarding policy acceptance, DOM badge mounting on YouTube fixture, active-watch gate, chrome.storage privacy check, and esbuild bundling of `pixelmatch` in `dist/`. | **100% Passed (5/5 steps)** |
+| **Backend Ingestion & Audio** | Django Test Runner (`python manage.py test`) | 6 test modules / 20 tests | Boundary clamping, overlapping interval merges, 0.25s epsilon tolerance, multi-viewer segment completion, Base64 JPEG decoding, `yt-dlp` audio service, FFmpeg slice duration validation, SHA-256 transcript deduplication, manifest builder, REST endpoints. | **100% Passed (20/20 tests)** |
 
 ---
 
@@ -232,11 +234,29 @@ Incoming developers should proceed through the following prioritized tasks:
 - **Context**: The concurrent agentic session authored [`backend/apps/content/services/youtube_audio_service.py`](file:///C:/Users/Lakshya/Desktop/AI%20Project/backend/apps/content/services/youtube_audio_service.py) proposing server-side `yt-dlp` audio downloading and slicing.
 - **Action**: Review this proposal against client-side TabCapture to decide whether audio should be extracted server-side or via the popup user-gesture bridge outlined in [`docs/memo/AUDIO_CAPTURE_ANALYSIS_AND_MEMO.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/AUDIO_CAPTURE_ANALYSIS_AND_MEMO.md).
 
-### Priority 3: Motion-Adaptive Frame Sampling (Backlog Evaluation)
-- **Reference**: [`docs/memo/MOTION_ADAPTIVE_FRAME_SAMPLING_MEMO.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/MOTION_ADAPTIVE_FRAME_SAMPLING_MEMO.md).
-- **Action**: Evaluate whether to replace the static 5.0s frame sampling with 32x32 luminance delta motion-adaptive sampling (~55% payload reduction).
+### Priority 3: Motion-Adaptive Frame Sampling (**COMPLETED**)
+- **Reference**: [`docs/memo/MOTION_ADAPTIVE_FRAME_SAMPLING_MEMO.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/MOTION_ADAPTIVE_FRAME_SAMPLING_MEMO.md) and [`docs/plans/motion_adaptive_frame_sampling_optimization_plan.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/plans/motion_adaptive_frame_sampling_optimization_plan.md).
+- **Delivered**: Replaced the static 5.0s sampling with `MotionAdaptiveFrameSampler` powered by Mapbox's `pixelmatch` library on a downscaled 64x36 canvas. Decelerates static content to a 10.0s heartbeat ceiling (~50%–67% payload reduction) and accelerates rapid content up to a 1.25s debounce ceiling upon scene cuts, with built-in YouTube subtitle immunity. Fully verified with 8 dedicated unit tests (48 total passed).
 
 ### Priority 4: Production Cloud Hardening
 - Configure PostgreSQL via `DATABASE_URL` in `aidetect_backend/settings.py`.
 - Configure AWS S3 or Cloudflare R2 via `django-storages`.
 - Wrap background jobs in Celery + Redis.
+
+---
+
+## 7. Engineering Audit & Adaptation of Team Repository (`kannabiran-v005/AI_Project`)
+
+In this session, an exhaustive compatibility, adaptation, and forensic flaw review was conducted on the machine learning repository developed by team member V. Kannabiran ([`kannabiran-v005/AI_Project`](https://github.com/kannabiran-v005/AI_Project)):
+
+### 1. Master Review Documentation
+- **⭐ Full Compatibility & Flaw Review Report**: [`docs/memo/TEAM_REPOSITORY_COMPATIBILITY_AND_ADAPTATION_REVIEW.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/TEAM_REPOSITORY_COMPATIBILITY_AND_ADAPTATION_REVIEW.md)
+- **⭐ Multimodal Inference Engine Technical Specification**: [`docs/memo/AI_MODEL_ENSEMBLE_SPECIFICATION.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/AI_MODEL_ENSEMBLE_SPECIFICATION.md)
+
+### 2. Key Empirical Findings & Root Causes Diagnosed
+1. **Catastrophic Video Compression Sensitivity**: The team's pretrained image classifier (`umm-maybe/AI-image-detector`) achieved an ROC AUC of **0.389** (sub-random!) and an accuracy of **52.9%** on 17 labeled YouTube videos. Root cause: YouTube's H.264/VP9 DCT compression, 4:2:0 chroma subsampling, and 360p downscaling destroy high-frequency diffusion artifacts, while cinematic lighting on real human videos (`4kdAONN0DQY`, `9fia1FsVfyw`) triggered false positives ($>0.94$).
+2. **Inverted Fusion Weighting**: The team set $w_{\text{img}} = 0.6$ by default despite the text model achieving **0.929 AUC**. Their own `weight_sweep.csv` showed accuracy dropped from $70.6\%$ to $52.9\%$ when $w_{\text{img}} \ge 0.5$.
+3. **The Audio Modality Blindspot**: The team repository had $0\%$ audio coverage, missing the vast majority of AI slop/faceless channels that pair stock video with synthetic voiceovers (ElevenLabs/Edge-TTS).
+4. **Breakthrough Discovery**: The team's `frame_experiment.py` proved that **Max / Top-2 aggregation (81.8% accuracy, 0.80-0.83 AUC)** drastically outperforms Mean aggregation because synthetic video anomalies manifest in bursts.
+5. **Production Adaptation Blueprint**: Designed the asynchronous `InferenceService` and `run_inference_worker` management command in Django, consuming structured `manifest.json` files, applying Top-2 frame aggregation, adding voice-cloning detection on `YouTubeAudioService`'s sliced Opus chunks, and implementing dynamic missing-modality Bayesian fusion.
+
