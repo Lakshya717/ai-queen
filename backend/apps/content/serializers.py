@@ -26,10 +26,10 @@ class VideoSegmentDtoSerializer(serializers.ModelSerializer):
 
 class VideoLookupSerializer(serializers.ModelSerializer):
     videoId = serializers.CharField(source='video_id')
-    aiRelianceScore = serializers.FloatField(source='ai_reliance_score')
-    confidence = serializers.FloatField()
+    aiRelianceScore = serializers.FloatField(source='ai_reliance_score', allow_null=True)
+    confidence = serializers.FloatField(allow_null=True)
     segmentDurationSeconds = serializers.IntegerField(source='segment_duration_seconds')
-    analyzedAt = serializers.DateTimeField(source='analyzed_at')
+    analyzedAt = serializers.DateTimeField(source='analyzed_at', allow_null=True)
     requiredPolicyVersion = serializers.CharField(source='required_policy_version')
     segments = serializers.SerializerMethodField()
     missingSegmentIndices = serializers.SerializerMethodField()

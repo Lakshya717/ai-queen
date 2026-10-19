@@ -30,7 +30,8 @@ docs/
 │   ├── EXTENSION_WALKTHROUGH.md             # Extension completion walkthrough & unit test matrix
 │   ├── AUDIO_CAPTURE_ANALYSIS_AND_MEMO.md   # YouTube MSE demuxing audit & tabCapture sandbox memo
 │   ├── MOTION_ADAPTIVE_FRAME_SAMPLING_MEMO.md # Motion-adaptive frame sampling specification (Implemented)
-│   └── MOTION_ADAPTIVE_SAMPLING_WALKTHROUGH.md # ⭐ Walkthrough of completed pixelmatch sampling engine
+│   ├── MOTION_ADAPTIVE_SAMPLING_WALKTHROUGH.md # ⭐ Walkthrough of completed pixelmatch sampling engine
+│   └── MODULAR_SCORING_PIPELINE_WALKTHROUGH.md # ⭐ Walkthrough of completed modular multi-component scoring engine
 │
 └── plans/                            # Foundational specifications & session implementation plans
     ├── design plans/                 # 📂 External / Pre-Existing Foundational Plans
@@ -47,7 +48,8 @@ docs/
     ├── server_side_audio_pipeline_and_client_simplification_plan.md # Approved server-side audio plan
     ├── motion_adaptive_frame_sampling_plan.md               # Motion-adaptive sampling plan
     ├── motion_adaptive_frame_sampling_optimization_plan.md  # ⭐ Implemented Mapbox pixelmatch sampling plan
-    └── developer_documentation_reorganization_plan.md       # Documentation reorganization plan
+    ├── developer_documentation_reorganization_plan.md       # Documentation reorganization plan
+    └── MODULAR_SCORING_PIPELINE_PLAN.md                     # ⭐ Implemented Modular Multi-Component AI Scoring Plan
 ```
 
 ---

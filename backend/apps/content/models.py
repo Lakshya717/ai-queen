@@ -140,3 +140,31 @@ class InferenceJob(models.Model):
 
     def __str__(self):
         return f"Job #{self.id} (Video {self.video_id}, Seg #{self.segment_index}) [{self.status}]"
+
+
+class SegmentComponentScore(models.Model):
+    STATUS_CHOICES = [
+        ('SUCCESS', 'Success'),
+        ('SKIPPED', 'Skipped'),
+        ('FAILED', 'Failed'),
+    ]
+
+    segment = models.ForeignKey(VideoSegment, on_delete=models.CASCADE, related_name='component_scores')
+    component_name = models.CharField(max_length=64, db_index=True)
+    modality = models.CharField(max_length=32, db_index=True)
+    score = models.FloatField(null=True, blank=True, help_text="0.0 to 1.0 (1.0 = AI, 0.0 = Human)")
+    confidence = models.FloatField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='SUCCESS')
+    execution_time_ms = models.FloatField(default=0.0)
+    details = models.JSONField(default=dict, help_text="Component-specific collected output details")
+    error_message = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'segment_component_scores'
+        unique_together = ('segment', 'component_name')
+        ordering = ['segment', 'component_name']
+
+    def __str__(self):
+        return f"{self.component_name} ({self.modality}) on {self.segment}: {self.score} [{self.status}]"

@@ -37,6 +37,12 @@ To ensure complete transparency and prevent conflation across distinct developme
 | [`docs/memo/TEAM_REPOSITORY_COMPATIBILITY_AND_ADAPTATION_REVIEW.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/TEAM_REPOSITORY_COMPATIBILITY_AND_ADAPTATION_REVIEW.md) | **THIS Agentic Session (Phase 3)** | *Technical Review & Forensic Audit* | Comprehensive compatibility review of team member V. Kannabiran's repository (`kannabiran-v005/AI_Project`), root causes of video compression failure (AUC 0.389), and production adaptation plan. |
 | [`docs/memo/AI_MODEL_ENSEMBLE_SPECIFICATION.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/AI_MODEL_ENSEMBLE_SPECIFICATION.md) | **THIS Agentic Session (Phase 3)** | *Technical Specification* | Concrete technical specification for Milestone B5 Multimodal Inference Engine, Top-2 frame aggregation, dynamic Bayesian fusion math, and Django async worker service. |
 | `docs/plans/server_side_audio_pipeline...md` & others | **Other Agentic Session (Separate Review)** | *Engineering Plans* | Series of plans authored by the other session for server-side audio, tab capture UX, and documentation reorganization. |
+| **`backend/apps/content/models.py` (`SegmentComponentScore`)** | **THIS Agentic Session (Phase 4)** | *Production Model & Migration* | Model and schema migration (`0002_segmentcomponentscore.py`) persisting individual component scores, confidence, execution latency, and rich diagnostic details. |
+| **`backend/apps/content/inference/` (Dispatcher & Connectors)** | **THIS Agentic Session (Phase 4)** | *Production Inference Engine* | Modular inference engine: `BaseComponentConnector`, `SegmentContext`, hardcoded connectors (`slopout_visual`, `slopout_text`, `temporal_consistency`, `audio_signal`), `InferenceDispatcher`, and `FusionEngine`. |
+| [`backend/apps/content/management/commands/run_inference.py`](file:///C:/Users/Lakshya/Desktop/AI%20Project/backend/apps/content/management/commands/run_inference.py) | **THIS Agentic Session (Phase 4)** | *Ops & CLI Tooling* | Management command to execute multi-component inference and multimodal fusion across segments. |
+| [`docs/plans/MODULAR_SCORING_PIPELINE_PLAN.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/plans/MODULAR_SCORING_PIPELINE_PLAN.md) | **THIS Agentic Session (Phase 4)** | *Engineering Plan* | Approved technical specification for the modular multi-component scoring pipeline with hardcoded backend connectors. |
+| [`docs/memo/MODULAR_SCORING_PIPELINE_WALKTHROUGH.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/MODULAR_SCORING_PIPELINE_WALKTHROUGH.md) | **THIS Agentic Session (Phase 4)** | *Technical Memo & Walkthrough* | Complete walkthrough documenting architecture, fault isolation, CLI verification, and 42 passing tests. |
+| `backend/tests/` (42 Total Unit & Integration Tests) | **THIS Agentic Session (Phase 4)** | *Test Harness (100% Pass)* | Added 17 new tests across `test_inference_connectors.py`, `test_inference_fault_isolation.py`, `test_fusion_engine.py`, and `test_analysis_endpoint.py`. |
 
 ---
 
@@ -220,6 +226,13 @@ Developers continuing this codebase should study these 6 critical insights:
 * **The Problem**: Querying YouTube's `timedtext` caption URLs directly or via raw `yt-dlp` without cookies results in `HTTP Error 429: Too Many Requests` or `403 Forbidden` due to Google's Proof-of-Origin (PO) tokens and BotGuard defenses.
 * **The Solution**: Use `youtube-transcript-api` which leverages the Innertube API endpoint protocol to extract complete, timestamped subtitle streams without requiring browser cookie extraction (which fails on Windows when Chrome has the cookie SQLite database locked). Combine this with canonical SHA-256 deduplication to guarantee zero duplicate downloads across viewers.
 
+### Insight 7: Hardcoded Backend Connectors for Component-Specific Input/Output & Fault Isolation
+* **The Problem**: Different AI detection models have disparate signatures, data dependencies, and output schemas. Forcing them into a rigid interface creates brittle glue code, while an unhandled runtime error (CUDA OOM, corrupt JPEG, missing subtitle) in any single detector crashes the entire backend request.
+* **The Solution**:
+  1. Each component uses a dedicated, hardcoded backend connector implementing `prepare_input` (extracting and formatting the exact input types required), `invoke_component`, and `collect_output` (gathering the specific domain metrics returned by that component).
+  2. Each connector execution is wrapped in an isolated `try...except` boundary. If a component fails or throws, it records `status="FAILED"` with full traceback diagnostics while all other components succeed normally.
+  3. All components share the virtual environment, but heavy dependencies (PyTorch, Transformers) load lazily to preserve low memory overhead.
+
 ---
 
 ## 5. Master Verification Matrix
@@ -230,7 +243,7 @@ The repository maintains 100% green verification status across all subsystems:
 |---|---|---|---|---|
 | **Extension Domain Core** | Vitest (`npm test`) | 6 suites / 48 tests | Half-open intervals $[0, 30)$, observation clamping $[10, 30)$, active-watch gate closure (<50ms), 7 badge states, opt-in fail-open filtering, storage privacy zero-leakage, and **motion-adaptive frame sampling via Mapbox `pixelmatch`** (debounce ceiling, static suppression, heartbeat, scene cut acceleration, subtitle immunity). | **100% Passed (48/48 tests)** |
 | **Extension Browser Review** | Playwright (`npm run test:e2e`) | Real Chromium instance | Service worker registration, popup onboarding policy acceptance, DOM badge mounting on YouTube fixture, active-watch gate, chrome.storage privacy check, and esbuild bundling of `pixelmatch` in `dist/`. | **100% Passed (5/5 steps)** |
-| **Backend Ingestion, Audio & Transcripts** | Django Test Runner (`python manage.py test`) | 7 test modules / 25 tests | Boundary clamping, overlapping interval merges, 0.25s epsilon tolerance, multi-viewer segment completion, Base64 JPEG decoding, `yt-dlp` audio service, FFmpeg slice duration validation, SHA-256 transcript deduplication, `YouTubeTranscriptService` cue normalization & language fallback, server-side contribution extraction, manifest builder, REST endpoints. | **100% Passed (25/25 tests)** |
+| **Backend Ingestion, Audio, Transcripts & Modular Inference** | Django Test Runner (`python manage.py test`) | 10 test modules / 42 tests | Boundary clamping, overlapping interval merges, 0.25s epsilon tolerance, multi-viewer segment completion, Base64 JPEG decoding, `yt-dlp` audio service, FFmpeg slice duration validation, SHA-256 transcript deduplication, `YouTubeTranscriptService` cue normalization & language fallback, server-side contribution extraction, manifest builder, REST endpoints, **modular hardcoded connectors (`slopout_visual`, `slopout_text`, `temporal_consistency`, `audio_signal`), runtime fault isolation guarantee, multimodal weight re-normalization, and side-by-side analysis API**. | **100% Passed (42/42 tests in 0.42s)** |
 
 ---
 
@@ -279,4 +292,34 @@ In this session, an exhaustive compatibility, adaptation, and forensic flaw revi
 3. **The Audio Modality Blindspot**: The team repository had $0\%$ audio coverage, missing the vast majority of AI slop/faceless channels that pair stock video with synthetic voiceovers (ElevenLabs/Edge-TTS).
 4. **Breakthrough Discovery**: The team's `frame_experiment.py` proved that **Max / Top-2 aggregation (81.8% accuracy, 0.80-0.83 AUC)** drastically outperforms Mean aggregation because synthetic video anomalies manifest in bursts.
 5. **Production Adaptation Blueprint**: Designed the asynchronous `InferenceService` and `run_inference_worker` management command in Django, consuming structured `manifest.json` files, applying Top-2 frame aggregation, adding voice-cloning detection on `YouTubeAudioService`'s sliced Opus chunks, and implementing dynamic missing-modality Bayesian fusion.
+
+---
+
+## 8. Phase 4 Engineering Session Log: Modular Multi-Component AI Scoring Architecture & SlopOut Integration
+
+**Session Focus**: Establishing a modular, fault-isolated multi-component inference framework in the Django backend, integrating the team's SlopOut models from `kannabiran_AI_Project`, adding support for temporal and audio signals, and implementing backend schema persistence and strategy comparison.
+
+### 1. Key Architectural Accomplishments
+- **Database Model & Migration (`apps/content/models.py`)**:
+  - Implemented `SegmentComponentScore` storing `component_name`, `modality`, `score`, `confidence`, `status`, `execution_time_ms`, `details` (JSONField), and `error_message`.
+  - Applied migration `0002_segmentcomponentscore.py` and registered `SegmentComponentScoreAdmin` in Django Admin.
+- **Hardcoded Backend Connectors (`apps/content/inference/connectors/`)**:
+  - `SlopOutVisualConnector`: Loads JPEG frames into `List[PIL.Image]`, executes CLIP ViT-B/32 + Logistic Regression (or ViT fallback), and collects `mean`, `max`, `std`, `peak_frame_timestamp`, and per-frame probabilities.
+  - `SlopOutTextConnector`: Formats transcript cues into clean text, chunks into 120-word windows, runs RoBERTa HC3 classifier, and collects chunk-level details.
+  - `TemporalConsistencyConnector`: Evaluates chronological frame pairs, computes pairwise luminance deltas ($\Delta L$), `temporal_jitter_index`, and `static_freeze_ratio`.
+  - `AudioSignalConnector`: Validates WebM Opus audio chunks, evaluates duration, byte size, and acoustic continuity metrics.
+- **Fault-Isolated Inference Dispatcher (`InferenceDispatcher`)**:
+  - Parses `manifest.json` into immutable `SegmentContext`.
+  - Executes each connector with execution timing and error boundary isolation. If a component fails or throws, `status="FAILED"` is recorded with traceback and all other components continue.
+- **Multimodal Fusion Engine (`FusionEngine`)**:
+  - Dynamically normalizes modality weights over available signals (visual: 0.50, text: 0.30, temporal: 0.10, audio: 0.10).
+  - Updates `VideoSegment.ai_segment_score` and time-weighted whole-video score `Video.ai_reliance_score`, `label` (`HUMAN_MADE`, `MIXED`, `AI_GENERATED`), and `status`.
+- **API Endpoints & CLI Tooling**:
+  - `GET /v1/content/youtube/<video_id>/analysis`: Returns full side-by-side component breakdown, individual metrics, and strategy comparisons across modalities.
+  - `python manage.py run_inference`: Command-line runner (`--video-id <id>`, `--segment <idx>`, `--all`) to process pending jobs or re-evaluate videos.
+
+### 2. Empirical & Test Verification
+- **Automated Tests**: 42 unit and integration tests passing (100% pass rate in 0.42s).
+- **Fault Isolation Verified**: Simulated CUDA OOM in `test_inference_fault_isolation.py` was caught, recorded with traceback, while the working component completed and segment score was computed.
+- **Real Media Evaluation**: Executed `run_inference` on `y2rPvroMk-8` across 3 segments; correctly evaluated visual, text, temporal, and audio signals, skipped temporal on 1-frame segment, and updated whole-video score to 0.4806 (`MIXED`).
 

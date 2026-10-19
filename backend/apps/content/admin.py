@@ -4,7 +4,7 @@ Provides a visual inspection dashboard for videos, segments, intervals, contribu
 """
 
 from django.contrib import admin
-from .models import Video, VideoSegment, SegmentInterval, Contribution, VideoTranscript, InferenceJob
+from .models import Video, VideoSegment, SegmentInterval, Contribution, VideoTranscript, InferenceJob, SegmentComponentScore
 
 
 class SegmentIntervalInline(admin.TabularInline):
@@ -60,4 +60,12 @@ class InferenceJobAdmin(admin.ModelAdmin):
     list_display = ('id', 'video', 'segment_index', 'status', 'manifest_path', 'created_at', 'updated_at')
     list_filter = ('status', 'created_at')
     search_fields = ('video__video_id', 'manifest_path')
+    readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(SegmentComponentScore)
+class SegmentComponentScoreAdmin(admin.ModelAdmin):
+    list_display = ('id', 'segment', 'component_name', 'modality', 'score', 'confidence', 'status', 'execution_time_ms', 'created_at')
+    list_filter = ('component_name', 'modality', 'status', 'created_at')
+    search_fields = ('segment__video__video_id', 'component_name', 'modality')
     readonly_fields = ('created_at', 'updated_at')

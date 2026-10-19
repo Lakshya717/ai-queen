@@ -27,6 +27,7 @@ from .services.interval_merger import (
 from .services.media_storage import MediaStorageService
 from .services.transcript_service import TranscriptService
 from .services.manifest_builder import ManifestBuilder
+from .inference.dispatcher import InferenceDispatcher
 
 
 class VideoLookupView(APIView):
@@ -254,7 +255,7 @@ class ContributionIngestionView(APIView):
                 transcript_hash=transcript_hash,
             )
 
-            InferenceJob.objects.create(
+            job = InferenceJob.objects.create(
                 video=video,
                 segment_index=segment_index,
                 status='PENDING',
@@ -282,6 +283,15 @@ class ContributionIngestionView(APIView):
 
             remaining = compute_remaining_intervals(seg_start, seg_end, merged)
 
+        # Trigger modular inference engine on the segment if enabled
+        import os
+        if os.getenv("AUTO_DISPATCH_INFERENCE", "0") == "1":
+            try:
+                InferenceDispatcher().dispatch_segment(segment_id=segment.id, job_id=job.id)
+                video.refresh_from_db()
+            except Exception:
+                pass
+
         # Output response matching ContributionUploadResponseDto
         response_dto = {
             "contributionId": contribution_id,
@@ -295,3 +305,73 @@ class ContributionIngestionView(APIView):
         }
 
         return Response(response_dto, status=status.HTTP_200_OK)
+
+
+class VideoAnalysisView(APIView):
+    """
+    GET /v1/content/youtube/<video_id>/analysis
+    Returns detailed multi-component score breakdown, individual metrics, and strategy comparisons.
+    """
+    def get(self, request, video_id: str):
+        try:
+            video = Video.objects.prefetch_related(
+                'segments',
+                'segments__component_scores'
+            ).get(video_id=video_id)
+        except Video.DoesNotExist:
+            return Response(
+                {"error": "Video not found", "videoId": video_id},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        segment_data = []
+        all_component_scores = []
+        modality_totals = {}
+        modality_counts = {}
+
+        for seg in video.segments.all():
+            comp_list = []
+            for cs in seg.component_scores.all():
+                comp_list.append({
+                    "componentName": cs.component_name,
+                    "modality": cs.modality,
+                    "score": cs.score,
+                    "confidence": cs.confidence,
+                    "status": cs.status,
+                    "executionTimeMs": cs.execution_time_ms,
+                    "details": cs.details,
+                    "errorMessage": cs.error_message,
+                })
+                if cs.status == "SUCCESS" and cs.score is not None:
+                    all_component_scores.append(cs)
+                    modality_totals[cs.modality] = modality_totals.get(cs.modality, 0.0) + cs.score
+                    modality_counts[cs.modality] = modality_counts.get(cs.modality, 0) + 1
+
+            segment_data.append({
+                "segmentIndex": seg.segment_index,
+                "bounds": [seg.start_seconds, seg.end_seconds],
+                "coverageStatus": seg.coverage_status,
+                "aiSegmentScore": seg.ai_segment_score,
+                "components": comp_list,
+            })
+
+        modality_averages = {
+            m: round(modality_totals[m] / modality_counts[m], 4)
+            for m in modality_totals
+        }
+
+        response_data = {
+            "videoId": video.video_id,
+            "status": video.status,
+            "label": video.label,
+            "aiRelianceScore": video.ai_reliance_score,
+            "confidence": video.confidence,
+            "analyzedAt": video.analyzed_at.isoformat() if video.analyzed_at else None,
+            "segments": segment_data,
+            "strategyComparison": {
+                "modalityAverages": modality_averages,
+                "componentsEvaluated": sorted(list({cs.component_name for cs in all_component_scores})),
+                "totalEvaluations": len(all_component_scores),
+            }
+        }
+        return Response(response_data, status=status.HTTP_200_OK)
