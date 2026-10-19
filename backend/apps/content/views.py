@@ -185,23 +185,32 @@ class ContributionIngestionView(APIView):
                 observed_intervals=clamped_new,
             )
 
-            # 5. Transcript Deduplication
+            # 5. Transcript Deduplication & Automated Server Fallback
             transcript_hash = None
-            if transcript_data:
-                res = transcript_service.process_transcript(video_id, transcript_data)
-                if res:
-                    thash, tscope, is_new, _ = res
-                    transcript_hash = thash
-                    if is_new:
-                        VideoTranscript.objects.get_or_create(
-                            content_hash=thash,
-                            defaults={
-                                'video': video,
-                                'language': transcript_data.get('language', 'en'),
-                                'scope': tscope,
-                                'cues_json': transcript_data.get('segments') or [],
-                            }
-                        )
+            active_cues = []
+            transcript_scope = 'unavailable'
+
+            res = transcript_service.process_transcript(
+                video_id=video_id,
+                transcript_data=transcript_data,
+                allow_server_fallback=True,
+            )
+            if res:
+                thash, tscope, is_new, _ = res
+                transcript_hash = thash
+                transcript_scope = tscope
+                active_cues = getattr(res, 'cues', [])
+                trans_lang = getattr(res, 'language', 'en')
+                if is_new:
+                    VideoTranscript.objects.get_or_create(
+                        content_hash=thash,
+                        defaults={
+                            'video': video,
+                            'language': trans_lang,
+                            'scope': tscope,
+                            'cues_json': active_cues,
+                        }
+                    )
 
             # 6. Evaluate Segment Sufficiency
             covered_sec = calculate_coverage_duration(merged)
@@ -228,7 +237,7 @@ class ContributionIngestionView(APIView):
                 policy_version=policy_version,
                 frame_count=len(saved_frames),
                 audio_duration_seconds=audio_dur,
-                transcript_scope=transcript_data.get('scope', 'unavailable') if transcript_data else 'unavailable',
+                transcript_scope=transcript_scope,
                 transcript_hash=transcript_hash or '',
             )
 
@@ -241,7 +250,7 @@ class ContributionIngestionView(APIView):
                 merged_intervals=merged,
                 frames=saved_frames,
                 audio_chunks=saved_audio,
-                transcript_cues=transcript_data.get('segments') if transcript_data else None,
+                transcript_cues=active_cues,
                 transcript_hash=transcript_hash,
             )
 

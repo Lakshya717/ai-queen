@@ -29,6 +29,9 @@ To ensure complete transparency and prevent conflation across distinct developme
 | [`docs/memo/AUDIO_CAPTURE_ANALYSIS_AND_MEMO.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/AUDIO_CAPTURE_ANALYSIS_AND_MEMO.md) | **THIS Agentic Session (Phase 2)** | *Technical Memo* | Live database/filesystem audit of `NUkvMI9SKtU`, `iAU4e6g7QuQ`, `89bv0b-qTC0`; forensic root-cause analysis of YouTube MSE audio demuxing and Chrome user-gesture security barriers. |
 | [`docs/memo/BACKEND_ARCHITECTURE_AND_HANDOFF.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/BACKEND_ARCHITECTURE_AND_HANDOFF.md) | **THIS Agentic Session (Phase 2)** | *Technical Memo* | Specification and architecture documentation of the implemented Django backend, DTO serialization alignment, and inference handoff. |
 | [`backend/apps/content/services/youtube_audio_service.py`](file:///C:/Users/Lakshya/Desktop/AI%20Project/backend/apps/content/services/youtube_audio_service.py) | **Other Agentic Session (Separate Review)** | *Experimental / Pending Review* | Server-side audio extraction using `yt-dlp` and `imageio-ffmpeg` stream slicing. |
+| [`backend/apps/content/services/youtube_transcript_service.py`](file:///C:/Users/Lakshya/Desktop/AI%20Project/backend/apps/content/services/youtube_transcript_service.py) | **THIS Agentic Session (Phase 3)** | *Production Service* | Resilient server-side caption extraction using `youtube-transcript-api` (immune to `timedtext` 429 rate limiting) and `yt-dlp` fallback with language negotiation and timestamp normalization. |
+| [`backend/apps/content/management/commands/backfill_transcripts.py`](file:///C:/Users/Lakshya/Desktop/AI%20Project/backend/apps/content/management/commands/backfill_transcripts.py) | **THIS Agentic Session (Phase 3)** | *Ops & Tooling* | Retroactive management command to fetch YouTube captions, populate `VideoTranscript`, update 157 `Contribution` records to `full`, and re-compile segment manifests with speech cues. |
+| [`docs/memo/SERVER_SIDE_TRANSCRIPT_EXTRACTION_MEMO.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/SERVER_SIDE_TRANSCRIPT_EXTRACTION_MEMO.md) | **THIS Agentic Session (Phase 3)** | *Technical Memo* | Forensic root cause analysis of client DOM transcript failures, BotGuard 429 rate-limiting on `timedtext`, dual-engine extraction architecture, and backfill verification. |
 | [`docs/memo/WALKTHROUGH.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/WALKTHROUGH.md) | **Other Agentic Session (Separate Review)** | *Technical Memo* | Walkthrough authored by the other session detailing `Qp2zfpqogxU`, Chromium WebM bug resolution, and the server-side audio transition. |
 | [`docs/memo/MOTION_ADAPTIVE_FRAME_SAMPLING_MEMO.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/MOTION_ADAPTIVE_FRAME_SAMPLING_MEMO.md) | **Other Agentic Session (Separate Review)** | *Backlog Proposal* | Senior research memo specifying 32x32 luminance delta motion-adaptive frame sampling (~55% payload reduction). |
 | [`docs/memo/TEAM_REPOSITORY_COMPATIBILITY_AND_ADAPTATION_REVIEW.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/TEAM_REPOSITORY_COMPATIBILITY_AND_ADAPTATION_REVIEW.md) | **THIS Agentic Session (Phase 3)** | *Technical Review & Forensic Audit* | Comprehensive compatibility review of team member V. Kannabiran's repository (`kannabiran-v005/AI_Project`), root causes of video compression failure (AUC 0.389), and production adaptation plan. |
@@ -172,11 +175,24 @@ flowchart TD
   4. *Fail-Open Specification Invariant*: Segments still completed because $\ge 2$ visual frames satisfied the sufficiency threshold.
 * **Document**: Authored [`docs/memo/AUDIO_CAPTURE_ANALYSIS_AND_MEMO.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/AUDIO_CAPTURE_ANALYSIS_AND_MEMO.md).
 
+### Milestone 5: Server-Side YouTube Caption & Transcript Extraction Pipeline
+* **User Observation**: The extension reported `transcript_scope: 'unavailable'` across 100% of live YouTube contributions, leaving 0 transcripts in `VideoTranscript` and empty `segment_cues: []` in segment manifests.
+* **Root Causes Diagnosed**:
+  1. *Collapsed Description Container*: The DOM scraper clicked `#expand` which only expands the video description (`...more`), failing to click the nested "Show transcript" button.
+  2. *Isolated World Boundary*: Content scripts cannot access `window.ytInitialPlayerResponse` or `#movie_player.getPlayerResponse()`.
+  3. *BotGuard HTTP 429*: Direct `timedtext` HTTP requests and standalone `yt-dlp` requests without session cookies get rate-limited by Google's Proof-of-Origin (PO) token defense.
+* **Architecture & Services Built**:
+  - `YouTubeTranscriptService` ([`youtube_transcript_service.py`](file:///C:/Users/Lakshya/Desktop/AI%20Project/backend/apps/content/services/youtube_transcript_service.py)): Resilient dual-engine architecture combining `youtube-transcript-api` (Innertube protocol, immune to 429) as primary with `yt-dlp` (`curl_cffi`) as fallback, including multi-language negotiation (`en` -> `en-US` -> native/auto-generated) and timestamp normalization.
+  - Automated Fallback in `TranscriptService` & `views.py`: Incoming contributions with empty client captions seamlessly invoke the server-side extractor, compute canonical SHA-256 digests, and store deduplicated `VideoTranscript` records.
+  - Aligned Speech Timeline: Segment manifests ([`manifest.json`](file:///C:/Users/Lakshya/Desktop/AI%20Project/backend/media/youtube/y2rPvroMk-8/segments/seg_0/manifest.json) and [`llm-input.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/backend/media/youtube/y2rPvroMk-8/segments/seg_0/llm-input.md)) now filter and align speech cues chronologically with visual frames and audio chunks.
+  - Retroactive Backfill ([`backfill_transcripts.py`](file:///C:/Users/Lakshya/Desktop/AI%20Project/backend/apps/content/management/commands/backfill_transcripts.py)): Backfilled all existing database videos: 7 canonical transcripts created, 157 contributions updated to `transcript_scope = 'full'`, and all manifests rebuilt.
+* **Document**: Authored [`docs/memo/SERVER_SIDE_TRANSCRIPT_EXTRACTION_MEMO.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/SERVER_SIDE_TRANSCRIPT_EXTRACTION_MEMO.md).
+
 ---
 
 ## 4. Key Technical Insights & Solved Pitfalls
 
-Developers continuing this codebase should study these 5 critical insights:
+Developers continuing this codebase should study these 6 critical insights:
 
 ### Insight 1: YouTube MSE Audio Demuxing vs. Client Capture
 * **The Problem**: Calling `<video>.captureStream()` in modern Chrome on YouTube yields an audio track count of zero (`stream.getAudioTracks().length === 0`).
@@ -200,6 +216,10 @@ Developers continuing this codebase should study these 5 critical insights:
 * **The Problem**: Direct HTTP requests to YouTube's `timedtext` caption URLs return empty 200 responses or 403 Forbidden due to Google's Proof-of-Origin (PO) tokens and BotGuard.
 * **The Solution**: The extension's `YouTubeDomTranscriptAdapter` scrolls the active `<ytd-transcript-renderer>` inside YouTube's engagement panel and reads rendered `<transcript-segment-view-model>` elements directly from the DOM, requiring zero network tokens or API keys.
 
+### Insight 6: YouTube BotGuard 429 & Dual-Engine Transcript Ingestion
+* **The Problem**: Querying YouTube's `timedtext` caption URLs directly or via raw `yt-dlp` without cookies results in `HTTP Error 429: Too Many Requests` or `403 Forbidden` due to Google's Proof-of-Origin (PO) tokens and BotGuard defenses.
+* **The Solution**: Use `youtube-transcript-api` which leverages the Innertube API endpoint protocol to extract complete, timestamped subtitle streams without requiring browser cookie extraction (which fails on Windows when Chrome has the cookie SQLite database locked). Combine this with canonical SHA-256 deduplication to guarantee zero duplicate downloads across viewers.
+
 ---
 
 ## 5. Master Verification Matrix
@@ -210,7 +230,7 @@ The repository maintains 100% green verification status across all subsystems:
 |---|---|---|---|---|
 | **Extension Domain Core** | Vitest (`npm test`) | 6 suites / 48 tests | Half-open intervals $[0, 30)$, observation clamping $[10, 30)$, active-watch gate closure (<50ms), 7 badge states, opt-in fail-open filtering, storage privacy zero-leakage, and **motion-adaptive frame sampling via Mapbox `pixelmatch`** (debounce ceiling, static suppression, heartbeat, scene cut acceleration, subtitle immunity). | **100% Passed (48/48 tests)** |
 | **Extension Browser Review** | Playwright (`npm run test:e2e`) | Real Chromium instance | Service worker registration, popup onboarding policy acceptance, DOM badge mounting on YouTube fixture, active-watch gate, chrome.storage privacy check, and esbuild bundling of `pixelmatch` in `dist/`. | **100% Passed (5/5 steps)** |
-| **Backend Ingestion & Audio** | Django Test Runner (`python manage.py test`) | 6 test modules / 20 tests | Boundary clamping, overlapping interval merges, 0.25s epsilon tolerance, multi-viewer segment completion, Base64 JPEG decoding, `yt-dlp` audio service, FFmpeg slice duration validation, SHA-256 transcript deduplication, manifest builder, REST endpoints. | **100% Passed (20/20 tests)** |
+| **Backend Ingestion, Audio & Transcripts** | Django Test Runner (`python manage.py test`) | 7 test modules / 25 tests | Boundary clamping, overlapping interval merges, 0.25s epsilon tolerance, multi-viewer segment completion, Base64 JPEG decoding, `yt-dlp` audio service, FFmpeg slice duration validation, SHA-256 transcript deduplication, `YouTubeTranscriptService` cue normalization & language fallback, server-side contribution extraction, manifest builder, REST endpoints. | **100% Passed (25/25 tests)** |
 
 ---
 

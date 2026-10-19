@@ -220,3 +220,55 @@ class ApiEndpointTests(TestCase):
         # Video is partial, not complete, because segments 1 & 2 are still missing
         self.assertEqual(lookup_data['status'], 'partial')
 
+    def test_contribution_without_transcript_triggers_server_fallback(self):
+        video_id = "testVidFall"
+        dummy_frame = base64.b64encode(b"\xFF\xD8\xFFDUMMY_IMAGE").decode('ascii')
+
+        payload = {
+            "videoId": video_id,
+            "policyVersion": "v1",
+            "segmentIndex": 0,
+            "segmentStartSeconds": 0.0,
+            "segmentEndSeconds": 30.0,
+            "observedIntervals": [{"startSeconds": 0.0, "endSeconds": 30.0}],
+            "frames": [{"videoTimestampSeconds": 5.0, "data": dummy_frame}],
+            "transcript": {
+                "scope": "unavailable",
+                "segments": []
+            }
+        }
+
+        mock_server_transcript = {
+            'video_id': video_id,
+            'language': 'en',
+            'scope': 'full',
+            'is_generated': False,
+            'segments': [
+                {'startSeconds': 2.0, 'endSeconds': 6.0, 'start_seconds': 2.0, 'end_seconds': 6.0, 'text': 'In-segment speech'},
+                {'startSeconds': 45.0, 'endSeconds': 50.0, 'start_seconds': 45.0, 'end_seconds': 50.0, 'text': 'Out-of-segment speech'},
+            ]
+        }
+
+        from unittest.mock import patch
+        import json
+        from pathlib import Path
+        from django.conf import settings
+
+        with patch('apps.content.services.youtube_transcript_service.YouTubeTranscriptService.get_or_fetch_transcript', return_value=mock_server_transcript), \
+             patch('apps.content.services.youtube_audio_service.YouTubeAudioService.slice_segment_audio', return_value=None):
+            resp = self.client.post(f'/v1/content/youtube/{video_id}/contributions', data=payload, format='json')
+            self.assertEqual(resp.status_code, 200)
+
+            # Check Contribution has full transcript
+            contrib = Contribution.objects.filter(video__video_id=video_id).first()
+            self.assertIsNotNone(contrib)
+            self.assertEqual(contrib.transcript_scope, 'full')
+            self.assertTrue(len(contrib.transcript_hash) > 0)
+
+            # Check manifest was built with filtered segment cues (only cue at 2.0s-6.0s, not 45.0s)
+            manifest_path = Path(settings.MEDIA_ROOT) / 'youtube' / video_id / 'segments' / 'seg_0' / 'manifest.json'
+            self.assertTrue(manifest_path.exists())
+            manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+            self.assertEqual(len(manifest['segment_cues']), 1)
+            self.assertEqual(manifest['segment_cues'][0]['text'], 'In-segment speech')
+
