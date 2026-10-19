@@ -5,14 +5,20 @@ Interacts with the Chrome Extension and organizes multimodal evidence packages f
 
 import uuid
 import math
+import threading
+from pathlib import Path
 from typing import List, Tuple
 from django.db import transaction
 from django.utils import timezone
+from django.conf import settings
+import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 
 from .models import Video, VideoSegment, SegmentInterval, Contribution, VideoTranscript, InferenceJob
+
+logger = logging.getLogger(__name__)
 from .serializers import (
     VideoLookupSerializer,
     ContributionInputSerializer,
@@ -28,6 +34,9 @@ from .services.media_storage import MediaStorageService
 from .services.transcript_service import TranscriptService
 from .services.manifest_builder import ManifestBuilder
 from .inference.dispatcher import InferenceDispatcher
+
+_active_video_dispatches = set()
+_active_video_dispatches_lock = threading.Lock()
 
 
 class VideoLookupView(APIView):
@@ -45,10 +54,43 @@ class VideoLookupView(APIView):
                 video_duration = 0.0
 
         try:
-            video = Video.objects.prefetch_related('segments').get(video_id=video_id)
+            video = Video.objects.prefetch_related('segments', 'segments__component_scores').get(video_id=video_id)
             if video_duration > 0 and video.duration_seconds <= 0:
                 video.duration_seconds = video_duration
                 video.save(update_fields=['duration_seconds'])
+
+            # Auto-Trigger Analysis when coverage is over/at threshold (configured in settings.py, default 90)
+            threshold = getattr(settings, 'ANALYSIS_COVERAGE_THRESHOLD_PERCENT', 90.0)
+            total_expected_segments = (
+                int(math.ceil(video.duration_seconds / video.segment_duration_seconds))
+                if video.duration_seconds > 0
+                else video.segments.count()
+            )
+            complete_segments_count = video.segments.filter(coverage_status='complete').count()
+            coverage_pct = (complete_segments_count / total_expected_segments * 100.0) if total_expected_segments > 0 else 0.0
+
+            if total_expected_segments > 0 and coverage_pct >= threshold:
+                # Check if analysis is needed: score not yet computed, or unscored complete segments, or pending jobs
+                has_unscored = video.segments.filter(coverage_status='complete', component_scores__isnull=True).exists()
+                has_pending_jobs = InferenceJob.objects.filter(video=video, status='PENDING').exists()
+                needs_analysis = video.ai_reliance_score is None or has_unscored or has_pending_jobs
+
+                if needs_analysis:
+                    with _active_video_dispatches_lock:
+                        already_running = video_id in _active_video_dispatches
+                        if not already_running:
+                            _active_video_dispatches.add(video_id)
+
+                    if not already_running:
+                        try:
+                            InferenceDispatcher().dispatch_video(video.video_id)
+                            video = Video.objects.prefetch_related('segments', 'segments__component_scores').get(video_id=video_id)
+                        except Exception as e:
+                            logger.exception(f"Auto-analysis failed for video {video_id}: {e}")
+                        finally:
+                            with _active_video_dispatches_lock:
+                                _active_video_dispatches.discard(video_id)
+
             serializer = VideoLookupSerializer(video)
             return Response(serializer.data, status=status.HTTP_200_OK)
         except Video.DoesNotExist:
@@ -66,6 +108,8 @@ class VideoLookupView(APIView):
                         "startSeconds": start,
                         "endSeconds": end,
                         "coverage": "missing",
+                        "aiSegmentScore": None,
+                        "components": [],
                     })
                     missing_indices.append(i)
 
@@ -79,6 +123,7 @@ class VideoLookupView(APIView):
                     "segmentDurationSeconds": seg_dur,
                     "segments": segments,
                     "missingSegmentIndices": missing_indices,
+                    "componentSummary": None,
                     "analyzedAt": None,
                     "requiredPolicyVersion": "v1",
                 },
@@ -124,8 +169,52 @@ class ContributionIngestionView(APIView):
         transcript_service = TranscriptService()
         manifest_builder = ManifestBuilder()
 
+        # 1. Deterministic Interval Clamping (Pure memory calculation)
+        clamped_new: List[Tuple[float, float]] = []
+        for iv in raw_intervals:
+            clamped = clamp_interval((iv['start_seconds'], iv['end_seconds']), seg_start, seg_end)
+            if clamped:
+                clamped_new.append(clamped)
+
+        # 2. Media Storage & Decoding (JPEG frames & Opus audio) - OUTSIDE database transaction
+        saved_frames = media_storage.save_frames(
+            video_id=video_id,
+            segment_index=segment_index,
+            contribution_id=contribution_id,
+            frames_data=frames_data,
+        )
+
+        saved_audio = media_storage.save_audio_chunks(
+            video_id=video_id,
+            segment_index=segment_index,
+            contribution_id=contribution_id,
+            audio_data=audio_data,
+            observed_intervals=clamped_new,
+        )
+
+        # 3. Transcript Deduplication & Automated Server Fallback - OUTSIDE database transaction
+        transcript_hash = None
+        active_cues = []
+        transcript_scope = 'unavailable'
+        trans_lang = 'en'
+        is_new_transcript = False
+
+        res = transcript_service.process_transcript(
+            video_id=video_id,
+            transcript_data=transcript_data,
+            allow_server_fallback=True,
+        )
+        if res:
+            thash, tscope, is_new, _ = res
+            transcript_hash = thash
+            transcript_scope = tscope
+            is_new_transcript = is_new
+            active_cues = getattr(res, 'cues', [])
+            trans_lang = getattr(res, 'language', 'en')
+
+        # 4. Fast Atomic Database Persist Block (< 5ms lock time)
         with transaction.atomic():
-            # 1. Video Entity
+            # Video Entity
             video, _ = Video.objects.get_or_create(
                 video_id=video_id,
                 defaults={
@@ -140,7 +229,7 @@ class ContributionIngestionView(APIView):
                 video.duration_seconds = video_duration
                 video.save(update_fields=['duration_seconds'])
 
-            # 2. Segment Entity
+            # Segment Entity
             segment, _ = VideoSegment.objects.get_or_create(
                 video=video,
                 segment_index=segment_index,
@@ -151,18 +240,11 @@ class ContributionIngestionView(APIView):
                 }
             )
 
-            # 3. Deterministic Half-Open Interval Merging
+            # Deterministic Half-Open Interval Merging
             existing_intervals = [
                 (iv.start_seconds, iv.end_seconds)
                 for iv in segment.intervals.all()
             ]
-
-            clamped_new: List[Tuple[float, float]] = []
-            for iv in raw_intervals:
-                clamped = clamp_interval((iv['start_seconds'], iv['end_seconds']), seg_start, seg_end)
-                if clamped:
-                    clamped_new.append(clamped)
-
             merged = merge_intervals(existing_intervals, clamped_new, epsilon=0.25)
 
             # Persist updated intervals
@@ -170,50 +252,19 @@ class ContributionIngestionView(APIView):
             for s, e in merged:
                 SegmentInterval.objects.create(segment=segment, start_seconds=s, end_seconds=e)
 
-            # 4. Media Storage & Decoding (JPEG frames & Opus audio)
-            saved_frames = media_storage.save_frames(
-                video_id=video_id,
-                segment_index=segment_index,
-                contribution_id=contribution_id,
-                frames_data=frames_data,
-            )
+            # Persist transcript entity if newly fetched
+            if is_new_transcript and transcript_hash:
+                VideoTranscript.objects.get_or_create(
+                    content_hash=transcript_hash,
+                    defaults={
+                        'video': video,
+                        'language': trans_lang,
+                        'scope': transcript_scope,
+                        'cues_json': active_cues,
+                    }
+                )
 
-            saved_audio = media_storage.save_audio_chunks(
-                video_id=video_id,
-                segment_index=segment_index,
-                contribution_id=contribution_id,
-                audio_data=audio_data,
-                observed_intervals=clamped_new,
-            )
-
-            # 5. Transcript Deduplication & Automated Server Fallback
-            transcript_hash = None
-            active_cues = []
-            transcript_scope = 'unavailable'
-
-            res = transcript_service.process_transcript(
-                video_id=video_id,
-                transcript_data=transcript_data,
-                allow_server_fallback=True,
-            )
-            if res:
-                thash, tscope, is_new, _ = res
-                transcript_hash = thash
-                transcript_scope = tscope
-                active_cues = getattr(res, 'cues', [])
-                trans_lang = getattr(res, 'language', 'en')
-                if is_new:
-                    VideoTranscript.objects.get_or_create(
-                        content_hash=thash,
-                        defaults={
-                            'video': video,
-                            'language': trans_lang,
-                            'scope': tscope,
-                            'cues_json': active_cues,
-                        }
-                    )
-
-            # 6. Evaluate Segment Sufficiency
+            # Evaluate Segment Sufficiency
             covered_sec = calculate_coverage_duration(merged)
             audio_dur = sum(
                 float(a.get('end_seconds', 0.0)) - float(a.get('start_seconds', 0.0))
@@ -230,7 +281,7 @@ class ContributionIngestionView(APIView):
             )
             segment.save()
 
-            # 7. Record Contribution
+            # Record Contribution
             Contribution.objects.create(
                 contribution_id=contribution_id,
                 video=video,
@@ -242,24 +293,14 @@ class ContributionIngestionView(APIView):
                 transcript_hash=transcript_hash or '',
             )
 
-            # 8. Multimodal Manifest Generation & Inference Job Creation
-            manifest_path = manifest_builder.build_segment_manifest(
-                video_id=video_id,
-                segment_index=segment_index,
-                segment_bounds=(seg_start, seg_end),
-                coverage_status=segment.coverage_status,
-                merged_intervals=merged,
-                frames=saved_frames,
-                audio_chunks=saved_audio,
-                transcript_cues=active_cues,
-                transcript_hash=transcript_hash,
+            manifest_target_path = str(
+                Path(settings.MEDIA_ROOT) / 'youtube' / video_id / 'segments' / f'seg_{segment_index}' / 'manifest.json'
             )
-
             job = InferenceJob.objects.create(
                 video=video,
                 segment_index=segment_index,
                 status='PENDING',
-                manifest_path=str(manifest_path),
+                manifest_path=manifest_target_path,
             )
 
             # Update video status if all segments complete
@@ -282,6 +323,20 @@ class ContributionIngestionView(APIView):
                 video.save()
 
             remaining = compute_remaining_intervals(seg_start, seg_end, merged)
+
+        # 5. Multimodal Manifest Generation - OUTSIDE database transaction
+        manifest_path = manifest_builder.build_segment_manifest(
+            video_id=video_id,
+            segment_index=segment_index,
+            segment_bounds=(seg_start, seg_end),
+            coverage_status=segment.coverage_status,
+            merged_intervals=merged,
+            frames=saved_frames,
+            audio_chunks=saved_audio,
+            transcript_cues=active_cues,
+            transcript_hash=transcript_hash,
+        )
+
 
         # Trigger modular inference engine on the segment if enabled
         import os

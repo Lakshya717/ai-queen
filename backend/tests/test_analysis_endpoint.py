@@ -4,6 +4,8 @@ Verifies GET /v1/content/youtube/<video_id>/analysis returns side-by-side compon
 diagnostics, and strategy comparisons.
 """
 
+from unittest.mock import patch
+from django.test import override_settings
 from rest_framework.test import APITestCase
 from rest_framework import status
 from apps.content.models import Video, VideoSegment, SegmentComponentScore
@@ -139,3 +141,119 @@ class VideoAnalysisEndpointTestCase(APITestCase):
         self.assertIn("text", strat["modalityAverages"])
         self.assertEqual(strat["modalityAverages"]["text"], 0.88)
         self.assertEqual(strat["totalEvaluations"], 3)  # 3 SUCCESS evaluations
+
+    def test_lookup_endpoint_returns_component_summary_and_segment_components(self):
+        url = f"/v1/content/youtube/{self.video.video_id}"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.data
+        self.assertEqual(data["videoId"], self.video.video_id)
+        self.assertIn("componentSummary", data)
+        self.assertIsNotNone(data["componentSummary"])
+
+        summary = data["componentSummary"]
+        self.assertIn("visual", summary["modalityAverages"])
+        self.assertEqual(summary["modalityAverages"]["visual"], 0.80)
+        self.assertIn("text", summary["modalityAverages"])
+        self.assertEqual(summary["modalityAverages"]["text"], 0.88)
+        self.assertIn("slopout_visual", summary["componentsEvaluated"])
+        self.assertEqual(summary["totalEvaluations"], 3)
+
+        # Segments
+        self.assertTrue(len(data["segments"]) >= 1)
+        seg0 = data["segments"][0]
+        self.assertEqual(seg0["aiSegmentScore"], 0.82)
+        self.assertIn("components", seg0)
+        self.assertEqual(len(seg0["components"]), 4)
+
+    @patch("apps.content.views.InferenceDispatcher")
+    def test_lookup_auto_triggers_analysis_when_coverage_meets_threshold(self, mock_dispatcher_cls):
+        mock_dispatcher = mock_dispatcher_cls.return_value
+
+        # 12 expected segments (360s / 30s)
+        unscored_video = Video.objects.create(
+            video_id="highCoverageVid",
+            duration_seconds=360.0,
+            segment_duration_seconds=30,
+            status="partial",
+            ai_reliance_score=None,
+        )
+        # Create 11 complete segments (11/12 = 91.67% >= 90% threshold)
+        for i in range(11):
+            VideoSegment.objects.create(
+                video=unscored_video,
+                segment_index=i,
+                start_seconds=float(i * 30),
+                end_seconds=float((i + 1) * 30),
+                coverage_status="complete",
+            )
+
+        url = f"/v1/content/youtube/{unscored_video.video_id}"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Assert dispatch_video was triggered
+        mock_dispatcher.dispatch_video.assert_called_once_with("highCoverageVid")
+
+    @patch("apps.content.views.InferenceDispatcher")
+    def test_lookup_does_not_trigger_analysis_when_coverage_below_threshold(self, mock_dispatcher_cls):
+        mock_dispatcher = mock_dispatcher_cls.return_value
+
+        # 12 expected segments, only 5 complete (5/12 = 41.67% < 90%)
+        low_coverage_video = Video.objects.create(
+            video_id="lowCoverageVid",
+            duration_seconds=360.0,
+            segment_duration_seconds=30,
+            status="partial",
+            ai_reliance_score=None,
+        )
+        for i in range(5):
+            VideoSegment.objects.create(
+                video=low_coverage_video,
+                segment_index=i,
+                start_seconds=float(i * 30),
+                end_seconds=float((i + 1) * 30),
+                coverage_status="complete",
+            )
+
+        url = f"/v1/content/youtube/{low_coverage_video.video_id}"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_dispatcher.dispatch_video.assert_not_called()
+
+    @patch("apps.content.views.InferenceDispatcher")
+    def test_lookup_respects_custom_threshold_from_settings(self, mock_dispatcher_cls):
+        mock_dispatcher = mock_dispatcher_cls.return_value
+
+        custom_video = Video.objects.create(
+            video_id="customThresholdVid",
+            duration_seconds=300.0,
+            segment_duration_seconds=30,
+            status="partial",
+            ai_reliance_score=None,
+        )
+        # 8 of 10 complete = 80.0%
+        for i in range(8):
+            VideoSegment.objects.create(
+                video=custom_video,
+                segment_index=i,
+                start_seconds=float(i * 30),
+                end_seconds=float((i + 1) * 30),
+                coverage_status="complete",
+            )
+
+        # When threshold is 85%, 80% should NOT trigger
+        with override_settings(ANALYSIS_COVERAGE_THRESHOLD_PERCENT=85.0):
+            response = self.client.get(f"/v1/content/youtube/{custom_video.video_id}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            mock_dispatcher.dispatch_video.assert_not_called()
+
+        # When threshold is 75%, 80% SHOULD trigger
+        with override_settings(ANALYSIS_COVERAGE_THRESHOLD_PERCENT=75.0):
+            response = self.client.get(f"/v1/content/youtube/{custom_video.video_id}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            mock_dispatcher.dispatch_video.assert_called_once_with("customThresholdVid")
+
+

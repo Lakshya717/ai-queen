@@ -33,6 +33,7 @@ class VideoLookupSerializer(serializers.ModelSerializer):
     requiredPolicyVersion = serializers.CharField(source='required_policy_version')
     segments = serializers.SerializerMethodField()
     missingSegmentIndices = serializers.SerializerMethodField()
+    componentSummary = serializers.SerializerMethodField()
 
     class Meta:
         model = Video
@@ -45,12 +46,74 @@ class VideoLookupSerializer(serializers.ModelSerializer):
             'segmentDurationSeconds',
             'segments',
             'missingSegmentIndices',
+            'componentSummary',
             'analyzedAt',
             'requiredPolicyVersion',
         ]
 
+    def get_componentSummary(self, obj):
+        modality_totals = {}
+        modality_counts = {}
+        components_evaluated = set()
+        total_evaluations = 0
+
+        for seg in obj.segments.all():
+            for cs in seg.component_scores.all():
+                components_evaluated.add(cs.component_name)
+                if cs.status == "SUCCESS" and cs.score is not None:
+                    modality_totals[cs.modality] = modality_totals.get(cs.modality, 0.0) + cs.score
+                    modality_counts[cs.modality] = modality_counts.get(cs.modality, 0) + 1
+                    total_evaluations += 1
+
+        if not components_evaluated and not modality_totals:
+            return None
+
+        modality_averages = {
+            m: round(modality_totals[m] / modality_counts[m], 4)
+            for m in modality_totals
+        }
+
+        return {
+            "modalityAverages": modality_averages,
+            "componentsEvaluated": sorted(list(components_evaluated)),
+            "totalEvaluations": total_evaluations,
+        }
+
     def get_segments(self, obj):
         segs = {s.segment_index: s for s in obj.segments.all()}
+
+        def format_segment(idx, seg_obj=None, fallback_start=0.0, fallback_end=0.0, fallback_cov='missing'):
+            if seg_obj:
+                comp_list = [
+                    {
+                        'componentName': cs.component_name,
+                        'modality': cs.modality,
+                        'score': cs.score,
+                        'confidence': cs.confidence,
+                        'status': cs.status,
+                        'executionTimeMs': cs.execution_time_ms,
+                        'details': cs.details,
+                        'errorMessage': cs.error_message,
+                    }
+                    for cs in seg_obj.component_scores.all()
+                ]
+                return {
+                    'index': seg_obj.segment_index,
+                    'startSeconds': seg_obj.start_seconds,
+                    'endSeconds': seg_obj.end_seconds,
+                    'coverage': seg_obj.coverage_status,
+                    'aiSegmentScore': seg_obj.ai_segment_score,
+                    'components': comp_list,
+                }
+            return {
+                'index': idx,
+                'startSeconds': fallback_start,
+                'endSeconds': fallback_end,
+                'coverage': fallback_cov,
+                'aiSegmentScore': None,
+                'components': [],
+            }
+
         if obj.duration_seconds > 0:
             total_segments = int(math.ceil(obj.duration_seconds / obj.segment_duration_seconds))
             results = []
@@ -58,27 +121,13 @@ class VideoLookupSerializer(serializers.ModelSerializer):
                 start = float(i * obj.segment_duration_seconds)
                 end = float(min((i + 1) * obj.segment_duration_seconds, obj.duration_seconds))
                 if i in segs:
-                    results.append({
-                        'index': i,
-                        'startSeconds': segs[i].start_seconds,
-                        'endSeconds': segs[i].end_seconds,
-                        'coverage': segs[i].coverage_status,
-                    })
+                    results.append(format_segment(i, seg_obj=segs[i]))
                 else:
-                    results.append({
-                        'index': i,
-                        'startSeconds': start,
-                        'endSeconds': end,
-                        'coverage': 'missing',
-                    })
+                    results.append(format_segment(i, fallback_start=start, fallback_end=end, fallback_cov='missing'))
             return results
+
         return [
-            {
-                'index': s.segment_index,
-                'startSeconds': s.start_seconds,
-                'endSeconds': s.end_seconds,
-                'coverage': s.coverage_status,
-            }
+            format_segment(s.segment_index, seg_obj=s)
             for s in obj.segments.all().order_by('segment_index')
         ]
 

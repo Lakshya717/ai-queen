@@ -75,8 +75,25 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
+        'OPTIONS': {
+            'timeout': 30,  # 30-second busy timeout to avoid "database is locked" errors under concurrency
+            'transaction_mode': 'IMMEDIATE',  # Serialize concurrent writes without SQLite deferred lock deadlocks
+        },
     }
 }
+
+# Automatically configure SQLite for high concurrency (WAL mode and busy timeout)
+from django.db.backends.signals import connection_created
+from django.dispatch import receiver
+
+@receiver(connection_created)
+def configure_sqlite_connection(sender, connection, **kwargs):
+    if connection.vendor == 'sqlite':
+        with connection.cursor() as cursor:
+            cursor.execute('PRAGMA journal_mode=WAL;')
+            cursor.execute('PRAGMA busy_timeout=30000;')
+            cursor.execute('PRAGMA synchronous=NORMAL;')
+
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -150,3 +167,8 @@ REST_FRAMEWORK = {
         'rest_framework.parsers.MultiPartParser',
     ],
 }
+
+# Auto-Trigger Analysis Threshold
+# Automatically initiates modular inference analysis when video coverage is >= this percentage upon user lookup.
+ANALYSIS_COVERAGE_THRESHOLD_PERCENT = float(os.getenv('ANALYSIS_COVERAGE_THRESHOLD_PERCENT', '90'))
+

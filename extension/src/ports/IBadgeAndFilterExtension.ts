@@ -1,4 +1,4 @@
-import type { VideoLookupResponseDto } from './IBackendApiAdapter';
+import type { VideoLookupResponseDto, ComponentSummaryDto, SegmentLookupDto } from './IBackendApiAdapter';
 
 export type BadgeState =
   | 'analyzed'
@@ -17,6 +17,8 @@ export interface BadgeMetadata {
   totalSegments?: number;
   analyzedAt?: string | null;
   statusText?: string;
+  componentSummary?: ComponentSummaryDto | null;
+  segments?: ReadonlyArray<SegmentLookupDto>;
 }
 
 export interface IBadgeRendererObserver {

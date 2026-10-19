@@ -4,6 +4,7 @@ export class MockElement {
   public _textContent = '';
   public children: MockElement[] = [];
   public parentElement: MockElement | null = null;
+  public style: Record<string, string> = {};
   public attributes = new Map<string, string>();
   private listeners = new Map<string, Array<(e: unknown) => void>>();
 
@@ -76,6 +77,14 @@ export class MockElement {
     return this.attributes.get(name) ?? null;
   }
 
+  public contains(target: MockElement): boolean {
+    if (target === this) return true;
+    for (const child of this.children) {
+      if (child.contains(target)) return true;
+    }
+    return false;
+  }
+
   public addEventListener(type: string, listener: (e: unknown) => void): void {
     const list = this.listeners.get(type) || [];
     list.push(listener);
@@ -105,7 +114,8 @@ export class MockElement {
 
 function matchesSelector(node: MockElement, selector: string): boolean {
   if (selector.startsWith('.')) {
-    return node.classList.contains(selector.slice(1));
+    const classes = selector.slice(1).split('.').filter(Boolean);
+    return classes.every((cls) => node.classList.contains(cls));
   }
   if (selector.startsWith('[') && selector.endsWith(']')) {
     const attr = selector.slice(1, -1);
@@ -129,6 +139,8 @@ export function setupMockDom(): { document: unknown } {
     body,
     querySelector: (sel: string) => body.querySelector(sel),
     querySelectorAll: (sel: string) => body.querySelectorAll(sel),
+    addEventListener: (_type: string, _listener: (e: unknown) => void) => {},
+    removeEventListener: (_type: string, _listener: (e: unknown) => void) => {},
   };
 
   (globalThis as unknown as { document: unknown }).document = mockDoc;

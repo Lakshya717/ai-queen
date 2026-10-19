@@ -43,6 +43,71 @@
       </div>
     </section>
 
+    <!-- AI Modality Breakdown Section -->
+    <section class="card" id="component-breakdown-card">
+      <div class="card-header">
+        <span class="card-title">AI Modality Analysis</span>
+        <span id="analysis-summary-badge" class="badge badge-inactive">Awaiting Data</span>
+      </div>
+      <div id="modality-meters-container" class="modality-container">
+        <!-- Visual Modality -->
+        <div class="modality-row">
+          <div class="modality-header">
+            <span class="modality-label">👁️ Visual Synthesis</span>
+            <span id="modality-val-visual" class="modality-score">--</span>
+          </div>
+          <div class="meter-bar-bg">
+            <div id="meter-fill-visual" class="meter-bar-fill fill-low" style="width: 0%;"></div>
+          </div>
+        </div>
+
+        <!-- Text / Script Modality -->
+        <div class="modality-row">
+          <div class="modality-header">
+            <span class="modality-label">📝 Script / Language</span>
+            <span id="modality-val-text" class="modality-score">--</span>
+          </div>
+          <div class="meter-bar-bg">
+            <div id="meter-fill-text" class="meter-bar-fill fill-low" style="width: 0%;"></div>
+          </div>
+        </div>
+
+        <!-- Temporal Continuity -->
+        <div class="modality-row">
+          <div class="modality-header">
+            <span class="modality-label">⏱️ Temporal Flow</span>
+            <span id="modality-val-temporal" class="modality-score">--</span>
+          </div>
+          <div class="meter-bar-bg">
+            <div id="meter-fill-temporal" class="meter-bar-fill fill-low" style="width: 0%;"></div>
+          </div>
+        </div>
+
+        <!-- Audio Modality -->
+        <div class="modality-row">
+          <div class="modality-header">
+            <span class="modality-label">🎙️ Audio Synthesis</span>
+            <span id="modality-val-audio" class="modality-score">--</span>
+          </div>
+          <div class="meter-bar-bg">
+            <div id="meter-fill-audio" class="meter-bar-fill fill-low" style="width: 0%;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Anomaly Alert / Diagnostics Snippet -->
+      <div id="popup-anomaly-box" class="anomaly-box hidden">
+        <span id="popup-anomaly-icon" class="anomaly-icon">⚠️</span>
+        <span id="popup-anomaly-text" class="anomaly-text">Analyzing video segments...</span>
+      </div>
+
+      <!-- Active Components Tags -->
+      <div id="popup-components-container" class="components-tags hidden">
+        <span class="tags-label">Components:</span>
+        <div id="popup-components-list" class="tags-list"></div>
+      </div>
+    </section>
+
     <!-- Multimodal Ingestion Pipeline Info -->
     <section class="card">
       <div class="card-header">

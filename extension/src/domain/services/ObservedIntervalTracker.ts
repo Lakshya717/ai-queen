@@ -3,7 +3,7 @@ import { TimeInterval } from '../models/TimeInterval';
 export interface IntervalFlushEvent {
   readonly segmentIndex: number;
   readonly interval: TimeInterval;
-  readonly reason: 'boundary_rollover' | 'seek_jump' | 'gate_closed' | 'session_stop';
+  readonly reason: 'boundary_rollover' | 'seek_jump' | 'gate_closed' | 'session_stop' | 'periodic_chunk';
 }
 
 export class ObservedIntervalTracker {
@@ -59,6 +59,16 @@ export class ObservedIntervalTracker {
     // 4. Normal playback advancement
     if (deltaVideo > 0 && deltaVideo <= maxExpectedAdvance) {
       this.lastObservedTime = currentTime;
+
+      // Periodic chunk flush: if continuous playback within the segment reaches >= 10s,
+      // flush the chunk to persist progress and update UI without waiting for full 30s
+      if (this.openIntervalStart !== null && (currentTime - this.openIntervalStart) >= 10.0) {
+        const sealed = this.sealInterval(currentTime, 'periodic_chunk');
+        this.openIntervalStart = currentTime;
+        this.lastObservedTime = currentTime;
+        this.currentSegmentIndex = segmentIndex;
+        return sealed;
+      }
     }
 
     return null;

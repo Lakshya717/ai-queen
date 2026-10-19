@@ -40,12 +40,15 @@ async function handleMessage(message: { type: string; [key: string]: unknown }):
     case 'lookup-video': {
       const videoId = message.videoId as string;
       const duration = typeof message.duration === 'number' && message.duration > 0 ? message.duration : undefined;
+      const forceRefresh = Boolean(message.forceRefresh);
       if (!videoId) return { ok: false, error: 'Missing videoId' };
 
-      // 1. Check local cache
-      const cached = await cacheRepo.get(videoId);
-      if (cached) {
-        return { ok: true, lookup: cached, fromCache: true };
+      // 1. Check local cache (only if not forcing refresh and entry is complete with scores)
+      if (!forceRefresh) {
+        const cached = await cacheRepo.get(videoId);
+        if (cached && cached.status === 'complete' && cached.aiRelianceScore != null) {
+          return { ok: true, lookup: cached, fromCache: true };
+        }
       }
 
       // 2. Query backend adapter

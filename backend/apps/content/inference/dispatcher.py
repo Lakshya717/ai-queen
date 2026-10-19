@@ -94,3 +94,21 @@ class InferenceDispatcher:
             ).update(status="COMPLETED")
 
         return records
+
+    def dispatch_video(self, video_id: str) -> List[CollectedScoreRecord]:
+        """
+        Executes inference across all available segments for a video and updates whole-video aggregation.
+        """
+        try:
+            video = Video.objects.prefetch_related("segments").get(video_id=video_id)
+        except Video.DoesNotExist:
+            logger.error(f"Video '{video_id}' not found for dispatch")
+            return []
+
+        all_records: List[CollectedScoreRecord] = []
+        for segment in video.segments.all().order_by("segment_index"):
+            records = self.dispatch_segment(segment.id)
+            all_records.extend(records)
+
+        video.refresh_from_db()
+        return all_records

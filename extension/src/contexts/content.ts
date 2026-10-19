@@ -72,7 +72,7 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
     }
     const duration = activeVideoElement?.duration;
     if (typeof duration === 'number' && !isNaN(duration) && duration > 0 && isFinite(duration)) {
-      if (!currentLookup || currentLookup.status === 'not_found' || currentLookup.segments.length === 0) {
+      if (!currentLookup || currentLookup.segments.length === 0) {
         const segDur = currentLookup?.segmentDurationSeconds || 30;
         const total = Math.ceil(duration / segDur);
         const synthSegments = [];
@@ -106,6 +106,11 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
           };
         }
         segmentScheduler.updateMissingIndices(missing);
+      } else if (!currentLookup.missingSegmentIndices || !Array.isArray(currentLookup.missingSegmentIndices)) {
+        currentLookup.missingSegmentIndices = currentLookup.segments
+          .filter((s) => s.coverage !== 'complete')
+          .map((s) => s.index);
+        segmentScheduler.updateMissingIndices(currentLookup.missingSegmentIndices);
       }
     }
   }
@@ -121,6 +126,10 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
       const coveredSegments = Math.max(0, totalSegments - missingSegments);
       const ratio = totalSegments > 0 ? coveredSegments / totalSegments : 0;
 
+      if (ratio >= 0.90 && currentLookup && currentLookup.aiRelianceScore == null && currentVideoId) {
+        checkAutoAnalysis(currentVideoId);
+      }
+
       sendResponse({
         videoId: currentVideoId,
         stateName: stateMachine.stateName,
@@ -130,10 +139,43 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
             ? `Covered ${coveredSegments} of ${totalSegments} segments (${Math.round(ratio * 100)}%)`
             : 'Detecting video segments...'
           : 'Open a YouTube video to detect AI reliance',
+        componentSummary: currentLookup?.componentSummary ?? null,
+        aiRelianceScore: currentLookup?.aiRelianceScore ?? null,
+        confidence: currentLookup?.confidence ?? null,
+        label: currentLookup?.label ?? null,
+        segments: currentLookup?.segments ?? [],
       });
       return true;
     }
   });
+
+  let isCheckingAutoAnalysis = false;
+  let lastAutoAnalysisCheckMs = 0;
+
+  function checkAutoAnalysis(videoId: string) {
+    const now = Date.now();
+    if (isCheckingAutoAnalysis || now - lastAutoAnalysisCheckMs < 4000) return;
+    isCheckingAutoAnalysis = true;
+    lastAutoAnalysisCheckMs = now;
+
+    const videoDur = activeVideoElement?.duration && !isNaN(activeVideoElement.duration) && activeVideoElement.duration > 0
+      ? activeVideoElement.duration
+      : undefined;
+
+    chrome.runtime.sendMessage(
+      { type: 'lookup-video', videoId, duration: videoDur, forceRefresh: true },
+      (res) => {
+        isCheckingAutoAnalysis = false;
+        if (res && res.ok && res.lookup) {
+          const freshLookup = res.lookup as VideoLookupResponseDto;
+          currentLookup = freshLookup;
+          segmentScheduler.updateMissingIndices(currentLookup.missingSegmentIndices);
+          renderOnPageBadges(currentLookup);
+          applyFiltering(currentLookup);
+        }
+      }
+    );
+  }
 
   // 4. Hook SPA Navigation
   platformAdapter.observeSpaNavigation((newVideoId) => {
@@ -225,6 +267,15 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
     }
 
     ensureSegmentsPopulated();
+
+    // Trigger auto-analysis check if coverage reaches 90% and score is not yet loaded
+    const totalSegs = currentLookup?.segments.length ?? 0;
+    const missingSegs = currentLookup?.missingSegmentIndices.length ?? 0;
+    const coveredSegs = Math.max(0, totalSegs - missingSegs);
+    const coverageRatio = totalSegs > 0 ? coveredSegs / totalSegs : 0;
+    if (coverageRatio >= 0.90 && currentLookup && currentLookup.aiRelianceScore == null && currentVideoId) {
+      checkAutoAnalysis(currentVideoId);
+    }
 
     const now = Date.now();
     const wallClockDeltaMs = now - lastTickWallClock;
@@ -358,6 +409,8 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
         label: lookup.label,
         confidence: lookup.confidence,
         analyzedAt: lookup.analyzedAt,
+        componentSummary: lookup.componentSummary,
+        segments: lookup.segments,
       });
     } else if (lookup.status === 'partial') {
       const total = lookup.segments.length;
@@ -365,6 +418,11 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
       badgePresenter.renderBadge(mount, 'partially_analyzed', {
         coveredSegments: total - missing,
         totalSegments: total,
+        score: lookup.aiRelianceScore,
+        label: lookup.label,
+        confidence: lookup.confidence,
+        componentSummary: lookup.componentSummary,
+        segments: lookup.segments,
       });
     } else {
       badgePresenter.renderBadge(mount, 'not_analyzed');

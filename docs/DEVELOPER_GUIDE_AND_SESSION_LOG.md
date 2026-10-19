@@ -233,6 +233,19 @@ Developers continuing this codebase should study these 6 critical insights:
   2. Each connector execution is wrapped in an isolated `try...except` boundary. If a component fails or throws, it records `status="FAILED"` with full traceback diagnostics while all other components succeed normally.
   3. All components share the virtual environment, but heavy dependencies (PyTorch, Transformers) load lazily to preserve low memory overhead.
 
+### Insight 8: SQLite High-Concurrency & Transaction Serialization
+* **The Problem**: High-frequency contributions from client extension active-watching paired with server-side media processing (`yt-dlp` audio downloading) triggered `sqlite3.OperationalError: database is locked`.
+* **Why It Happened**:
+  1. Wrapping disk I/O, `yt-dlp` network downloads, and transcript processing inside `transaction.atomic()` held SQLite exclusive locks for 10+ seconds.
+  2. SQLite defaults to `DEFERRED` transaction mode: when concurrent connections read and then attempt to write simultaneously, both upgrade from SHARED to RESERVED, creating an instant deadlock that causes SQLite to abort with `database is locked` without waiting for the busy timeout.
+  3. In the extension, `ensureSegmentsPopulated()` in `content.ts` was overwriting `missingSegmentIndices` back to all-missing on every tick for unmapped videos.
+* **The Solution**:
+  1. Set `'transaction_mode': 'IMMEDIATE'` and `'timeout': 30` in `settings.DATABASES['default']['OPTIONS']` to serialize write locks cleanly.
+  2. Enable `PRAGMA journal_mode=WAL;` and `PRAGMA busy_timeout=30000;` on connection.
+  3. Decouple disk/network I/O from database transactions: save frames, download audio, and fetch transcripts *before* entering `transaction.atomic()`, shrinking DB lock time to $< 5$ms.
+  4. Fix `ensureSegmentsPopulated()` to preserve populated segments and missing indices, and add periodic 10s chunk flushes in `ObservedIntervalTracker`.
+
+
 ---
 
 ## 5. Master Verification Matrix
@@ -322,4 +335,58 @@ In this session, an exhaustive compatibility, adaptation, and forensic flaw revi
 - **Automated Tests**: 42 unit and integration tests passing (100% pass rate in 0.42s).
 - **Fault Isolation Verified**: Simulated CUDA OOM in `test_inference_fault_isolation.py` was caught, recorded with traceback, while the working component completed and segment score was computed.
 - **Real Media Evaluation**: Executed `run_inference` on `y2rPvroMk-8` across 3 segments; correctly evaluated visual, text, temporal, and audio signals, skipped temporal on 1-frame segment, and updated whole-video score to 0.4806 (`MIXED`).
+
+---
+
+## Session 9: Extension UI Polish & Component Results Display Reflection (October 19, 2026)
+
+**Session Focus**: Exposing the backend's modular multi-component scoring pipeline (Visual, Text, Temporal, and Audio modality scores, evaluated component statuses, and peak anomaly diagnostic details) directly into the Chrome extension via an interactive on-page player badge HUD popover and an updated extension popup.
+
+### 1. Key Architectural Accomplishments
+- **Backend Lookup Enrichment (`backend/apps/content/serializers.py` & `views.py`)**:
+  - Enhanced `VideoLookupSerializer` to serialize `componentSummary` (modality averages for visual, text, temporal, audio and the list of evaluated components) as well as per-segment component score records (`aiSegmentScore` and `components`).
+  - Updated `VideoLookupView` to prefetch `segments__component_scores` and return graceful `componentSummary: null` for unmapped videos.
+  - Added Django integration test `test_lookup_endpoint_returns_component_summary_and_segment_components` in `backend/tests/test_analysis_endpoint.py`.
+- **Extension Port Alignment & DTOs (`extension/src/ports/`)**:
+  - In `IBackendApiAdapter.ts`: Defined `ComponentScoreDto`, `ComponentSummaryDto`, `SegmentLookupDto`, and updated `VideoLookupResponseDto`.
+  - In `IBadgeAndFilterExtension.ts`: Updated `BadgeMetadata` to include `componentSummary` and `segments`.
+- **Interactive On-Page Player Badge Popover HUD (`extension/src/extensions/badges/`)**:
+  - `BadgePresenter.ts`: Added interactive badge pill (`.yt-ai-badge-interactive`) with dropdown chevron indicator (`▾`), click toggle, hover listener, and outside-click auto-dismiss.
+  - Added `buildPopoverCard()`: Renders overall score badge, 4-modality meter grid (Visual, Text, Temporal, Audio with low/medium/high fills), peak anomaly diagnostics callout box (formatting exact `MM:SS` timestamps and descriptions), and evaluated component chips (`kannabiran_visual`, `transcript_perplexity`).
+  - `badge.css`: Styled popover HUD using native YouTube dark theme design tokens (`#18181b` surface, `#3f3f46` borders, rounded 12px corners, smooth transitions, `z-index: 9999`).
+- **Extension Popup UI AI Breakdown (`extension/src/contexts/`)**:
+  - `popup.html`: Added `<section class="card" id="component-breakdown-card">` with live modality meters, anomaly alert box, and component tags.
+  - `popup.css`: Added styles for modality meter bars, anomaly alert banners, and component tag pills.
+  - `popup.ts`: Extended `refreshStatus()` to query `get-status` and dynamically render modality percentages, anomaly flags, and component tags.
+  - `content.ts`: Updated `get-status` listener to forward `componentSummary`, `segments`, and component results.
+
+### 2. Empirical & Test Verification
+- **Backend Tests**: 46 Django tests passed (100% pass rate in 0.601s).
+- **Extension Tests**: 50 Vitest unit tests passed (100% pass rate in 0.94s), including new tests for popover HUD rendering, modality meters, and anomaly detection.
+- **Extension Bundling**: `npm run build` completed cleanly, bundling TypeScript into `dist/` with valid manifest mapping.
+
+### 3. Auto-Trigger Analysis on 90%+ Video Coverage
+- **Threshold Setting**: Defined `ANALYSIS_COVERAGE_THRESHOLD_PERCENT = float(os.getenv('ANALYSIS_COVERAGE_THRESHOLD_PERCENT', '90'))` in `backend/aidetect_backend/settings.py`.
+- **Lookup Trigger (`backend/apps/content/views.py`)**:
+  - `VideoLookupView` evaluates video coverage percentage on lookup: `(complete_segments / total_segments) * 100.0`.
+  - When `coverage_pct >= ANALYSIS_COVERAGE_THRESHOLD_PERCENT` and analysis is needed (`ai_reliance_score is None`, unscored complete segments, or pending jobs), it automatically calls `InferenceDispatcher().dispatch_video(video.video_id)`.
+  - The response returns the freshly computed scores and `componentSummary` immediately.
+- **Real-World Verification (`iLOHNwIkyso`)**:
+  - Video `iLOHNwIkyso` (from user screenshot with 11 of 12 segments = 91.67% coverage) was fetched via `GET /v1/content/youtube/iLOHNwIkyso`.
+  - Auto-analysis executed all 4 connectors across 11 segments (33 component evaluations), computed fused segment scores and whole-video score `0.1911` (`HUMAN_MADE`), and returned 200 OK with full component summaries.
+
+### 4. Extension Auto-Trigger Coordination & Cache Invalidation
+- **Service Worker Cache Guard (`extension/src/contexts/background.ts`)**:
+  - Previously, `lookup-video` returned any cached entry for 24h even if `aiRelianceScore == null` or `status != 'complete'`.
+  - Updated `background.ts` to only return cached lookups when `cached.status === 'complete' && cached.aiRelianceScore != null`, ensuring in-progress videos are always queried against the backend for newly completed analyses. Added support for `forceRefresh: true`.
+- **Content Script 90% Threshold Watcher (`extension/src/contexts/content.ts`)**:
+  - Added `checkAutoAnalysis()`: when video coverage ratio reaches $\ge 0.90$ and `aiRelianceScore == null`, the content script automatically triggers a refreshed background lookup.
+  - Automatically called during active playback ticks and when popup queries status via `get-status`.
+- **Popup UI Responsive Status (`extension/src/contexts/popup.ts`)**:
+  - When coverage is $\ge 90\%$ and backend analysis is in-flight, the popup displays `Auto-Analyzing (90%+)...` with a helper diagnostic note, and immediately renders modality scores as soon as the response arrives.
+- **Production Build**:
+  - Compiled and bundled with `npm run build` into `extension/dist/`.
+
+
+
 

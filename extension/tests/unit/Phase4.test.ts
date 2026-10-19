@@ -49,6 +49,81 @@ describe('Phase 4: Badges Presenter & Filtering Strategies (Review Loop 4 - Test
         expect(container.textContent?.length).toBeGreaterThan(0);
       }
     });
+
+    it('renders popover HUD with multi-component modality breakdown', () => {
+      const container = document.createElement('div');
+      presenter.renderBadge(container, 'analyzed', {
+        score: 0.85,
+        label: 'AI_GENERATED',
+        confidence: 0.90,
+        componentSummary: {
+          modalityAverages: {
+            visual: 0.82,
+            text: 0.88,
+            temporal: 0.45,
+            audio: 0.50,
+          },
+          componentsEvaluated: ['kannabiran_visual_scorer', 'transcript_perplexity_scorer'],
+          totalEvaluations: 4,
+        },
+      });
+
+      // Assert interactive arrow and popover presence
+      expect(container.querySelector('.yt-ai-badge-interactive')).not.toBeNull();
+      expect(container.querySelector('.yt-ai-badge-arrow')).not.toBeNull();
+      const popover = container.querySelector('.yt-ai-popover');
+      expect(popover).not.toBeNull();
+
+      // Assert modality scores displayed in text
+      expect(popover?.textContent).toContain('Visual Synthesis');
+      expect(popover?.textContent).toContain('82%');
+      expect(popover?.textContent).toContain('Script / Text Model');
+      expect(popover?.textContent).toContain('88%');
+      expect(popover?.textContent).toContain('Temporal Continuity');
+      expect(popover?.textContent).toContain('45%');
+      expect(popover?.textContent).toContain('Audio / Voice Clone');
+      expect(popover?.textContent).toContain('50%');
+
+      // Assert component tags
+      expect(popover?.textContent).toContain('kannabiran_visual');
+      expect(popover?.textContent).toContain('transcript_perplexity');
+      expect(popover?.textContent).toContain('Confidence: 90%');
+    });
+
+    it('renders peak anomaly diagnostics from segment details', () => {
+      const container = document.createElement('div');
+      presenter.renderBadge(container, 'analyzed', {
+        score: 0.85,
+        label: 'AI_GENERATED',
+        segments: [
+          {
+            index: 0,
+            startSeconds: 0,
+            endSeconds: 30,
+            coverage: 'complete',
+            aiSegmentScore: 0.85,
+            components: [
+              {
+                componentName: 'kannabiran_visual_scorer',
+                modality: 'visual',
+                score: 0.88,
+                status: 'SUCCESS',
+                details: {
+                  peakAnomalyTimestamp: 15.2,
+                  anomalyExplanation: 'Isolated synthetic cutaway detected',
+                },
+              },
+            ],
+          },
+        ],
+      });
+
+      const popover = container.querySelector('.yt-ai-popover');
+      expect(popover).not.toBeNull();
+      expect(popover?.textContent).toContain('Peak Anomaly at 00:15');
+      expect(popover?.textContent).toContain('Isolated synthetic cutaway detected');
+      expect(container.querySelector('.yt-ai-popover-diagnostics.has-anomaly')).not.toBeNull();
+    });
   });
 
   describe('Filtering Strategies & Fail-Open Invariant (Test #13)', () => {
