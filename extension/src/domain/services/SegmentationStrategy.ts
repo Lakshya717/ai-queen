@@ -2,10 +2,17 @@ import { TimeInterval } from '../models/TimeInterval';
 import type { ISegmentationStrategy } from '../../ports/ISegmentationStrategy';
 
 export class ConfigurableFixedSegmentationStrategy implements ISegmentationStrategy {
-  constructor(private readonly segmentDurationSeconds = 30) {
+  constructor(private segmentDurationSeconds = 30) {
     if (segmentDurationSeconds <= 0) {
       throw new RangeError('Segment duration must be positive');
     }
+  }
+
+  public setSegmentDuration(segmentDurationSeconds: number): void {
+    if (!Number.isFinite(segmentDurationSeconds) || segmentDurationSeconds <= 0) {
+      throw new RangeError('Segment duration must be positive');
+    }
+    this.segmentDurationSeconds = segmentDurationSeconds;
   }
 
   public getSegmentDuration(): number {

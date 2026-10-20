@@ -32,6 +32,7 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
   const frameSampler = new MotionAdaptiveFrameSampler();
 
   let currentVideoId: string | null = null;
+  let navigationGeneration = 0;
   let currentLookup: VideoLookupResponseDto | null = null;
   let userPrefs: UserPreferences = { ...DEFAULT_USER_PREFERENCES };
   let cachedTranscript: TranscriptPayload | null = null;
@@ -76,7 +77,7 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
         if (currentLookup && currentLookup.aiRelianceScore != null) {
           return;
         }
-        const segDur = currentLookup?.segmentDurationSeconds || 30;
+        const segDur = currentLookup?.segmentDurationSeconds || segmentationStrategy.getSegmentDuration();
         const total = Math.ceil(duration / segDur);
         const synthSegments = [];
         const missing = [];
@@ -185,7 +186,7 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
         (res) => {
           clearTimeout(timeoutId);
           isCheckingAutoAnalysis = false;
-          if (res?.ok && res.lookup) {
+          if (res?.ok && res.lookup && videoId === currentVideoId) {
             const freshLookup = res.lookup as VideoLookupResponseDto;
             currentLookup = freshLookup;
             segmentScheduler.updateMissingIndices(currentLookup.missingSegmentIndices);
@@ -214,6 +215,7 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
   }, 500);
 
   async function onVideoNavigated(videoId: string | null) {
+    const generation = ++navigationGeneration;
     // Flush and reset previous session
     if (currentVideoId && stateMachine.stateName === 'capturing') {
       intervalTracker.flushOnGateClose(activeVideoElement?.currentTime);
@@ -224,6 +226,8 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
     cachedTranscript = null;
     intervalTracker.reset();
     activeVideoElement = null;
+    segmentationStrategy.setSegmentDuration(30);
+    intervalTracker.setSegmentDuration(30);
     resetEvidenceAccumulators();
     stateMachine.transitionTo('inactive');
 
@@ -233,8 +237,10 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
     activeVideoElement = platformAdapter.locatePrimaryVideoElement(document);
     if (activeVideoElement) {
       activeVideoElement.addEventListener('loadedmetadata', () => {
+        configureShortsSegmentation();
         ensureSegmentsPopulated();
       }, { once: true });
+      configureShortsSegmentation();
     }
 
     // Query backend for cache and missing segments
@@ -246,7 +252,8 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
       : undefined;
 
     chrome.runtime.sendMessage({ type: 'lookup-video', videoId, duration: videoDur }, async (res) => {
-      if (res && res.ok && res.lookup) {
+    if (generation !== navigationGeneration || videoId !== currentVideoId) return;
+    if (res && res.ok && res.lookup) {
         currentLookup = res.lookup as VideoLookupResponseDto;
         if (currentLookup.status === 'not_found' || currentLookup.segments.length === 0) {
           segmentScheduler.setUnmapped(true);
@@ -267,8 +274,11 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
 
         // Fetch accessible transcript in background
         if (userPrefs.contributionEnabled && (segmentScheduler.hasAnyMissingSegments() || currentLookup.missingSegmentIndices.length > 0)) {
+          const transcriptGeneration = generation;
           transcriptAdapter.extractTranscript(videoId).then((t) => {
-            cachedTranscript = t;
+            if (transcriptGeneration === navigationGeneration && videoId === currentVideoId) {
+              cachedTranscript = t;
+            }
           });
         }
       } else {
@@ -276,6 +286,15 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
         stateMachine.transitionTo('inactive');
       }
     });
+  }
+
+  function configureShortsSegmentation(): void {
+    if (!platformAdapter.isShortsUrl(window.location.href) || !activeVideoElement) return;
+    const duration = activeVideoElement.duration;
+    if (Number.isFinite(duration) && duration > 0 && duration < 30) {
+      segmentationStrategy.setSegmentDuration(duration);
+      intervalTracker.setSegmentDuration(duration);
+    }
   }
 
   // 5. Active-Watch 250ms Main Coordination Loop
@@ -335,7 +354,7 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
         updateBadge('collecting_evidence');
 
         currentSegmentIndex = segmentScheduler.getSegmentIndex(t);
-        const bounds = segmentationStrategy.getSegmentBounds(currentSegmentIndex);
+        const bounds = segmentationStrategy.getSegmentBounds(currentSegmentIndex, activeVideoElement.duration);
       }
 
       // Track playback interval advance
@@ -365,8 +384,10 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
   async function handleIntervalFlush(event: IntervalFlushEvent) {
     if (!currentVideoId || !userPrefs.contributionEnabled) return;
 
+    const uploadVideoId = currentVideoId;
+    const uploadGeneration = navigationGeneration;
     const segIndex = event.segmentIndex;
-    const bounds = segmentationStrategy.getSegmentBounds(segIndex);
+    const bounds = segmentationStrategy.getSegmentBounds(segIndex, activeVideoElement?.duration);
 
     const framesToUpload = [...accumulatedFrames];
     resetEvidenceAccumulators();
@@ -396,7 +417,13 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
       chrome.runtime.sendMessage(
         { type: 'upload-evidence-package', pkg: evidencePkg, videoDuration: videoDur },
         (res) => {
-          if (res && res.ok && res.updatedLookup) {
+          if (
+            uploadGeneration === navigationGeneration &&
+            uploadVideoId === currentVideoId &&
+            res &&
+            res.ok &&
+            res.updatedLookup
+          ) {
             currentLookup = res.updatedLookup as VideoLookupResponseDto;
             ensureSegmentsPopulated();
             segmentScheduler.updateMissingIndices(currentLookup.missingSegmentIndices);

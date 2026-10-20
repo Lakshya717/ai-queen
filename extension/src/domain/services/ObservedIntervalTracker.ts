@@ -12,9 +12,16 @@ export class ObservedIntervalTracker {
   private currentSegmentIndex: number | null = null;
 
   constructor(
-    private readonly segmentDurationSeconds = 30,
+    private segmentDurationSeconds = 30,
     private readonly onIntervalFlush?: (event: IntervalFlushEvent) => void
   ) {}
+
+  public setSegmentDuration(segmentDurationSeconds: number): void {
+    if (!Number.isFinite(segmentDurationSeconds) || segmentDurationSeconds <= 0) {
+      throw new RangeError('Segment duration must be positive');
+    }
+    this.segmentDurationSeconds = segmentDurationSeconds;
+  }
 
   public onPlaybackTick(
     currentTime: number,

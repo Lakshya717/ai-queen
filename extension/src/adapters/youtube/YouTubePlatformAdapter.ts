@@ -18,7 +18,7 @@ export class YouTubePlatformAdapter implements IPlatformAdapter {
       }
 
       // 2. YouTube Shorts: /shorts/12345678901
-      const shortsMatch = url.pathname.match(/^\/shorts\/([A-Za-z0-9_-]{11})/);
+      const shortsMatch = url.pathname.match(/^\/shorts\/([A-Za-z0-9_-]{11})(?:\/|$)/);
       if (shortsMatch && YouTubePlatformAdapter.VIDEO_ID_REGEX.test(shortsMatch[1])) {
         return shortsMatch[1];
       }
@@ -41,9 +41,19 @@ export class YouTubePlatformAdapter implements IPlatformAdapter {
     }
   }
 
+  public isShortsUrl(urlStr: string): boolean {
+    try {
+      return new URL(urlStr).pathname === '/shorts' ||
+        new URL(urlStr).pathname.startsWith('/shorts/');
+    } catch {
+      return false;
+    }
+  }
+
   public locatePrimaryVideoElement(root: Document = document): HTMLVideoElement | null {
     // Priority order of selectors
     return (
+      (root.querySelector('#shorts-player video, ytd-shorts video, ytd-reel-video-renderer video') as HTMLVideoElement) ||
       (root.querySelector('#movie_player video') as HTMLVideoElement) ||
       (root.querySelector('video.html5-main-video') as HTMLVideoElement) ||
       (root.querySelector('video') as HTMLVideoElement) ||
@@ -64,15 +74,22 @@ export class YouTubePlatformAdapter implements IPlatformAdapter {
       }
     };
 
+    let pollId: ReturnType<typeof setInterval> | null = null;
     if (typeof document !== 'undefined') {
       document.addEventListener('yt-navigate-finish', handler);
+      document.addEventListener('yt-page-data-updated', handler);
       window.addEventListener('popstate', handler);
+      // Shorts can update the URL during swipe/autoplay without consistently
+      // emitting a history event.
+      pollId = setInterval(handler, 500);
     }
 
     return () => {
       if (typeof document !== 'undefined') {
         document.removeEventListener('yt-navigate-finish', handler);
+        document.removeEventListener('yt-page-data-updated', handler);
         window.removeEventListener('popstate', handler);
+        if (pollId !== null) clearInterval(pollId);
       }
     };
   }
@@ -82,6 +99,20 @@ export class YouTubePlatformAdapter implements IPlatformAdapter {
   }
 
   public createBadgeMountPoint(root: Document = document): HTMLElement | null {
+    const shortsPlayer = root.querySelector(
+      '#shorts-player, ytd-shorts, ytd-reel-video-renderer, #shorts-container'
+    ) as HTMLElement | null;
+    if (shortsPlayer) {
+      let mount = root.getElementById('yt-ai-detect-badge-root');
+      if (!mount) {
+        mount = root.createElement('div');
+        mount.id = 'yt-ai-detect-badge-root';
+        mount.className = 'yt-ai-detect-badge-container';
+        shortsPlayer.appendChild(mount);
+      }
+      return mount;
+    }
+
     // Mount near the video title or below the player
     const titleContainer =
       root.querySelector('#title h1, ytd-watch-metadata #title, #above-the-fold') ||

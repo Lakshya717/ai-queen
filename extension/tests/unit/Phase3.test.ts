@@ -15,6 +15,8 @@ import { YouTubeDomTranscriptAdapter } from '../../src/adapters/youtube/YouTubeD
 import { ChromeStorageResultCacheRepository } from '../../src/adapters/storage/ChromeStorageResultCacheRepository';
 import { StoragePolicyConsentAdapter } from '../../src/adapters/storage/StoragePolicyConsentAdapter';
 import type { VideoLookupResponseDto } from '../../src/ports/IBackendApiAdapter';
+import { ConfigurableFixedSegmentationStrategy } from '../../src/domain/services/SegmentationStrategy';
+import { ObservedIntervalTracker } from '../../src/domain/services/ObservedIntervalTracker';
 
 describe('Phase 3: Active-Watch Gating, Identity, State Machine & Transcripts (Review Loop 3)', () => {
   describe('YouTubePlatformAdapter URL Parsing (Test #1)', () => {
@@ -34,9 +36,30 @@ describe('Phase 3: Active-Watch Gating, Identity, State Machine & Transcripts (R
       );
     });
 
+    it('recognizes Shorts routes independently of the video ID', () => {
+      expect(adapter.isShortsUrl('https://www.youtube.com/shorts/dQw4w9WgXcQ')).toBe(true);
+      expect(adapter.isShortsUrl('https://www.youtube.com/shorts')).toBe(true);
+      expect(adapter.isShortsUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ')).toBe(false);
+    });
+
     it('parses youtu.be shortlinks', () => {
       expect(adapter.extractVideoIdFromUrl('https://youtu.be/dQw4w9WgXcQ')).toBe('dQw4w9WgXcQ');
       expect(adapter.extractVideoIdFromUrl('https://youtu.be/dQw4w9WgXcQ?t=15')).toBe('dQw4w9WgXcQ');
+    });
+
+    describe('Shorts segmentation', () => {
+      it('uses one bounded segment for a Short shorter than 30 seconds', () => {
+        const strategy = new ConfigurableFixedSegmentationStrategy(30);
+        const tracker = new ObservedIntervalTracker(30);
+
+        strategy.setSegmentDuration(12.5);
+        tracker.setSegmentDuration(12.5);
+
+        expect(strategy.getTotalSegments(12.5)).toBe(1);
+        expect(strategy.getSegmentBounds(0, 12.5).endSeconds).toBe(12.5);
+        expect(strategy.getSegmentIndexForTimestamp(12.49)).toBe(0);
+        expect(tracker.getCurrentTrackingState().segmentIndex).toBeNull();
+      });
     });
 
     it('returns null for invalid or non-video URLs', () => {

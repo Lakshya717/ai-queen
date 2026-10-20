@@ -70,8 +70,8 @@ async function runBrowserReview() {
 
     await popupPage.close();
 
-    // 3. Test In-Page Content Script on YouTube fixture
-    console.log('\n[E2E Step 2] Testing Active-Watch Gate & Badges on YouTube Watch Fixture...');
+    // 3. Test In-Page Content Script on a Shorts fixture
+    console.log('\n[E2E Step 2] Testing Active-Watch Gate & Badges on YouTube Shorts Fixture...');
     const page = await context.newPage();
 
     // Listen to page console
@@ -87,18 +87,20 @@ async function runBrowserReview() {
         <link rel="stylesheet" href="chrome-extension://${extensionId}/src/extensions/badges/badge.css">
       </head>
       <body style="background: #0f0f0f; color: #fff; padding: 20px;">
+        <ytd-shorts>
+          <div id="shorts-player" style="position: relative; width: 360px; height: 640px; background: #000;">
+            <video class="html5-main-video" width="360" height="640" controls></video>
+          </div>
+        </ytd-shorts>
         <div id="above-the-fold">
-          <div id="title"><h1>Simulated YouTube AI Video</h1></div>
-        </div>
-        <div id="movie_player" style="position: relative; width: 640px; height: 360px; background: #000;">
-          <video class="html5-main-video" width="640" height="360" controls></video>
+          <div id="title"><h1>Simulated YouTube Short</h1></div>
         </div>
       </body>
       </html>
     `;
 
-    // Intercept navigation to youtube.com/watch?v=mockTest123
-    await page.route('https://www.youtube.com/watch?v=mockTest123', (route) => {
+    // Intercept direct Shorts navigation.
+    await page.route('https://www.youtube.com/shorts/*', (route) => {
       route.fulfill({
         status: 200,
         contentType: 'text/html',
@@ -106,13 +108,22 @@ async function runBrowserReview() {
       });
     });
 
-    await page.goto('https://www.youtube.com/watch?v=mockTest123', { waitUntil: 'domcontentloaded' });
+    await page.goto('https://www.youtube.com/shorts/mockTest123', { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(1000);
 
     // Verify badge container mounted in DOM
     const badgeRoot = page.locator('#yt-ai-detect-badge-root');
     const isBadgeMounted = await badgeRoot.isVisible({ timeout: 5000 }).catch(() => false);
     console.log('  On-page badge mounted into DOM:', isBadgeMounted);
+    if (!isBadgeMounted) {
+      throw new Error('On-page badge should mount in the Shorts player');
+    }
+
+    // Shorts swipe/autoplay can update the URL without a full page load.
+    await page.evaluate(() => {
+      history.pushState({}, '', '/shorts/aBcdEf12345');
+    });
+    await page.waitForTimeout(700);
 
     // Simulate video playing
     console.log('\n[E2E Step 3] Simulating Playback and Active Watch Gate...');
