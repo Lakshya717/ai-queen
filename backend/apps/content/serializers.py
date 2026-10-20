@@ -6,6 +6,7 @@ Ensures seamless camelCase bidirectional interoperability with the Chrome Extens
 import math
 from rest_framework import serializers
 from .models import Video, VideoSegment, SegmentInterval, Contribution
+from .inference.fusion import DEFAULT_MODALITY_WEIGHTS
 
 
 class SegmentIntervalDtoSerializer(serializers.Serializer):
@@ -75,6 +76,7 @@ class VideoLookupSerializer(serializers.ModelSerializer):
 
         return {
             "modalityAverages": modality_averages,
+            "modalityWeights": DEFAULT_MODALITY_WEIGHTS,
             "componentsEvaluated": sorted(list(components_evaluated)),
             "totalEvaluations": total_evaluations,
         }

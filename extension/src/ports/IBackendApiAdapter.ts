@@ -14,6 +14,7 @@ export interface ComponentScoreDto {
 
 export interface ComponentSummaryDto {
   readonly modalityAverages: Record<string, number>;
+  readonly modalityWeights?: Record<string, number>;
   readonly componentsEvaluated: ReadonlyArray<string>;
   readonly totalEvaluations: number;
 }
@@ -51,4 +52,5 @@ export interface ContributionUploadResponseDto {
 export interface IBackendApiAdapter {
   lookupVideoCoverage(videoId: string, signal?: AbortSignal, durationSeconds?: number): Promise<VideoLookupResponseDto>;
   submitContribution(pkg: EvidencePackage, signal?: AbortSignal, videoDurationSeconds?: number): Promise<ContributionUploadResponseDto>;
+  recalculateVideo(videoId: string, signal?: AbortSignal): Promise<VideoLookupResponseDto>;
 }

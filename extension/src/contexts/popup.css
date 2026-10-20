@@ -13,6 +13,15 @@ body {
   line-height: 1.4;
 }
 
+body[data-surface='side-panel'] {
+  width: 100%;
+  min-width: 280px;
+}
+
+.hidden {
+  display: none !important;
+}
+
 .popup-container {
   padding: 14px;
   display: flex;
@@ -229,6 +238,19 @@ select {
   background: #dcfce7;
 }
 
+.recalculate-controls {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.recalculate-status {
+  min-height: 15px;
+  margin-top: 5px;
+  font-size: 10.5px;
+  color: #64748b;
+}
+
 .hidden {
   display: none !important;
 }
@@ -360,4 +382,3 @@ select {
   padding: 1px 5px;
   font-size: 10px;
 }
-

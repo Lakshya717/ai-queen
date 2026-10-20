@@ -35,6 +35,7 @@ from .services.media_storage import MediaStorageService
 from .services.transcript_service import TranscriptService
 from .services.manifest_builder import ManifestBuilder
 from .inference.dispatcher import InferenceDispatcher
+from .inference.fusion import DEFAULT_MODALITY_WEIGHTS
 
 _active_video_dispatches = set()
 _active_video_dispatches_lock = threading.Lock()
@@ -489,8 +490,30 @@ class VideoAnalysisView(APIView):
             "segments": segment_data,
             "strategyComparison": {
                 "modalityAverages": modality_averages,
+                "modalityWeights": DEFAULT_MODALITY_WEIGHTS,
                 "componentsEvaluated": sorted(list({cs.component_name for cs in all_component_scores})),
                 "totalEvaluations": len(all_component_scores),
             }
         }
         return Response(response_data, status=status.HTTP_200_OK)
+
+
+class VideoRecalculateView(APIView):
+    """
+    POST /v1/content/youtube/<video_id>/analysis/recalculate
+    Replays stored segment manifests with the current FusionEngine defaults.
+    """
+
+    def post(self, request, video_id: str):
+        try:
+            video = Video.objects.get(video_id=video_id)
+        except Video.DoesNotExist:
+            return Response(
+                {"error": "Video not found", "videoId": video_id},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        InferenceDispatcher().dispatch_video(video_id)
+        video.refresh_from_db()
+        serializer = VideoLookupSerializer(video)
+        return Response(serializer.data, status=status.HTTP_200_OK)

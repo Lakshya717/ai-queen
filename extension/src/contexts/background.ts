@@ -84,6 +84,15 @@ async function handleMessage(message: { type: string; [key: string]: unknown }):
       return { ok: true, result, updatedLookup };
     }
 
+    case 'recalculate-video': {
+      const videoId = message.videoId as string;
+      if (!videoId) return { ok: false, error: 'Missing videoId' };
+
+      const lookup = await backendAdapter.recalculateVideo(videoId);
+      await cacheRepo.set(videoId, lookup);
+      return { ok: true, lookup };
+    }
+
     case 'get-preferences': {
       const prefs = await consentAdapter.getPreferences();
       return { ok: true, prefs };

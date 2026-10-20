@@ -5,7 +5,8 @@
   "description": "Crowdsourced Client-Side AI Content Detection Extension for YouTube",
   "permissions": [
     "storage",
-    "activeTab"
+    "activeTab",
+    "sidePanel"
   ],
   "host_permissions": [
     "https://www.youtube.com/*",
@@ -20,6 +21,9 @@
   "action": {
     "default_title": "YouTube AI Detection",
     "default_popup": "src/contexts/popup.html"
+  },
+  "side_panel": {
+    "default_path": "src/contexts/sidepanel.html"
   },
   "content_scripts": [
     {

@@ -450,13 +450,12 @@ flowchart LR
 ```
 
 ### 5.1 Weighted Modality Fusion
-When all available modalities are evaluated, the segment AI reliance score $S_{\text{seg}}$ is computed via weighted fusion:
-$$S_{\text{seg}} = w_v \cdot S_{\text{visual}} + w_a \cdot S_{\text{audio}} + w_t \cdot S_{\text{text}}$$
-* Recommended default weights:
-  * Visual ($w_v$): `0.45`
-  * Audio ($w_a$): `0.35`
-  * Transcript / Text ($w_t$): `0.20`
-* If a modality is unavailable (e.g. video has no speech or audio is missing), normalize remaining weights so $\sum w_i = 1.0$.
+The segment AI reliance score $S_{\text{seg}}$ uses the configured active modality weights:
+$$S_{\text{seg}} = w_v \cdot S_{\text{visual}} + w_t \cdot S_{\text{text}}$$
+The current defaults are visual `0.30`, text `0.70`, with temporal and audio set to
+zero. Missing active evidence is treated as unknown and contributes the neutral
+score `0.5`; it does not promote the remaining modality to 100% weight. This keeps
+the configured policy stable across segments.
 
 ### 5.2 Whole-Video Aggregation
 The overall video AI Reliance Score $S_{\text{video}}$ is the time-weighted average across all completed segments:
@@ -503,7 +502,23 @@ The Chrome extension currently ships with `MockBackendApiAdapter` active for loc
 
 ---
 
-## 7. Actionable Roadmap & Checklist for the Incoming Backend AI Agent
+## 7. Stored-Evidence Recalculation
+
+The backend exposes a replay endpoint for recalculating existing evidence without
+collecting new frames, audio, or transcripts:
+
+```http
+POST /v1/content/youtube/{video_id}/analysis/recalculate
+Content-Type: application/json
+```
+
+The endpoint replays the saved segment manifests through the inference dispatcher,
+updates segment and video scores using `DEFAULT_MODALITY_WEIGHTS` from
+`apps/content/inference/fusion.py`, and returns the refreshed lookup response.
+Change those defaults in the backend when a different weighting policy is needed.
+The extension's **Recalculate stored data** control simply triggers this replay.
+
+## 8. Actionable Roadmap & Checklist for the Incoming Backend AI Agent
 
 An agentic AI session tasked with implementing this backend should proceed through the following milestones:
 

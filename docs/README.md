@@ -90,6 +90,22 @@ Every document in this vault is indexed below with its authorial provenance:
 * **[`motion_adaptive_frame_sampling_plan.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/plans/motion_adaptive_frame_sampling_plan.md)** *(Authored by Other Agentic Session - Pending Separate Review)*: Initial plan for motion-adaptive frame sampling research.
 * **[`motion_adaptive_frame_sampling_optimization_plan.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/plans/motion_adaptive_frame_sampling_optimization_plan.md)** *(Authored & Implemented in THIS Session)*: Approved and executed implementation plan for Mapbox `pixelmatch` motion-adaptive sampling.
 * **[`tab_audio_capture_and_popup_ux_plan.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/plans/tab_audio_capture_and_popup_ux_plan.md)** *(Authored by Other Agentic Session - Pending Separate Review)*: Intermediate plan exploring tabCapture popup UX before server-side transition.
+
+## Debug side panel
+
+The extension keeps the action popup as its normal status surface. To inspect
+live observation and coverage statistics without losing the view when browser
+focus changes:
+
+1. Open the extension popup and enable **Debug Mode (Side Panel)** under
+   Preferences.
+2. Open Chrome's Side panel and select the extension.
+3. Leave the panel open while navigating YouTube tabs; it refreshes the
+   current active tab without changing the content-script collection rules.
+
+Debug mode is persisted in extension storage and defaults to off. When it is
+off, the side panel shows only the debug-mode explanation and preference
+control; it does not start collection, uploads, or any other background work.
 * **[`youtube_audio_root_cause_and_multi_layer_fix_plan.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/plans/youtube_audio_root_cause_and_multi_layer_fix_plan.md)** *(Authored by Other Agentic Session - Pending Separate Review)*: Multi-layer audio fix plan.
 * **[`developer_documentation_reorganization_plan.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/plans/developer_documentation_reorganization_plan.md)** *(Authored by Other Agentic Session - Pending Separate Review)*: Plan for documentation directory organization.
 * **[`FRAME_QUOTA_AND_MODALITY_ALIGNMENT_IMPLEMENTATION_PLAN.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/plans/FRAME_QUOTA_AND_MODALITY_ALIGNMENT_IMPLEMENTATION_PLAN.md)** *(Authored in THIS Session)*: Implementation plan for cumulative quota accounting and modality alignment.

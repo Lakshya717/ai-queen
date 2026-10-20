@@ -34,7 +34,12 @@ class InferenceDispatcher:
         ]
         self.fusion = FusionEngine()
 
-    def dispatch_segment(self, segment_id: int, job_id: Optional[int] = None) -> List[CollectedScoreRecord]:
+    def dispatch_segment(
+        self,
+        segment_id: int,
+        job_id: Optional[int] = None,
+        weights: Optional[dict] = None,
+    ) -> List[CollectedScoreRecord]:
         """
         Executes inference across all connectors for a specific VideoSegment.
         """
@@ -88,6 +93,8 @@ class InferenceDispatcher:
             )
 
         # Multimodal fusion
+        if weights is not None:
+            self.fusion = FusionEngine(weights=weights)
         self.fusion.update_segment_score(segment, records)
         segment.refresh_from_db()
         logger.info(
@@ -116,7 +123,7 @@ class InferenceDispatcher:
 
         return records
 
-    def dispatch_video(self, video_id: str) -> List[CollectedScoreRecord]:
+    def dispatch_video(self, video_id: str, weights: Optional[dict] = None) -> List[CollectedScoreRecord]:
         """
         Executes inference across all available segments for a video and updates whole-video aggregation.
         """
@@ -134,7 +141,7 @@ class InferenceDispatcher:
 
         all_records: List[CollectedScoreRecord] = []
         for segment in segments:
-            records = self.dispatch_segment(segment.id)
+            records = self.dispatch_segment(segment.id, weights=weights)
             all_records.extend(records)
 
         video.refresh_from_db()

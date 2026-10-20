@@ -145,6 +145,13 @@ export class MockBackendApiAdapter implements IBackendApiAdapter {
     };
   }
 
+  public async recalculateVideo(
+    videoId: string,
+    _signal?: AbortSignal
+  ): Promise<VideoLookupResponseDto> {
+    return this.lookupVideoCoverage(videoId);
+  }
+
   public getStoredIntervals(videoId: string, segmentIndex: number): TimeInterval[] {
     const state = this.videoStore.get(videoId);
     if (!state) return [];

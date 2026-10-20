@@ -98,6 +98,16 @@ class VideoAnalysisEndpointTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertIn("error", response.data)
 
+    @patch("apps.content.views.InferenceDispatcher")
+    def test_recalculate_endpoint_replays_with_default_weights(self, mock_dispatcher_cls):
+        response = self.client.post(
+            f"/v1/content/youtube/{self.video.video_id}/analysis/recalculate",
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_dispatcher_cls.return_value.dispatch_video.assert_called_once_with(self.video.video_id)
+
     def test_analysis_endpoint_returns_component_matrix(self):
         url = f"/v1/content/youtube/{self.video.video_id}/analysis"
         response = self.client.get(url)
@@ -140,6 +150,7 @@ class VideoAnalysisEndpointTestCase(APITestCase):
         self.assertEqual(strat["modalityAverages"]["visual"], 0.80)
         self.assertIn("text", strat["modalityAverages"])
         self.assertEqual(strat["modalityAverages"]["text"], 0.88)
+        self.assertEqual(strat["modalityWeights"]["visual"], 0.30)
         self.assertEqual(strat["totalEvaluations"], 3)  # 3 SUCCESS evaluations
 
     def test_lookup_endpoint_returns_component_summary_and_segment_components(self):
@@ -255,5 +266,3 @@ class VideoAnalysisEndpointTestCase(APITestCase):
             response = self.client.get(f"/v1/content/youtube/{custom_video.video_id}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             mock_dispatcher.dispatch_video.assert_called_once_with("customThresholdVid")
-
-

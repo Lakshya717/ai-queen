@@ -7,7 +7,11 @@
 </head>
 <body>
   <div class="popup-container">
-    <header class="header">
+  <section id="debug-mode-banner" class="banner hidden">
+    <h3>Debug side panel is disabled</h3>
+    <p>Enable Debug Mode in Preferences to keep live observation statistics visible in Chrome's side panel.</p>
+  </section>
+  <header class="header">
       <div class="brand">
         <span class="logo">🛡️</span>
         <h2>AI Content Detection</h2>
@@ -29,7 +33,7 @@
     </section>
 
     <!-- Live Status Section -->
-    <section class="card">
+    <section class="card debug-only">
       <div class="card-header">
         <span class="card-title">Current Video</span>
         <span id="live-state-badge" class="badge badge-inactive">Inactive</span>
@@ -44,11 +48,12 @@
     </section>
 
     <!-- AI Modality Breakdown Section -->
-    <section class="card" id="component-breakdown-card">
+    <section class="card debug-only" id="component-breakdown-card">
       <div class="card-header">
         <span class="card-title">AI Modality Analysis</span>
         <span id="analysis-summary-badge" class="badge badge-inactive">Awaiting Data</span>
       </div>
+      <div class="card-desc">Percentages are raw component signals; zero-weight modalities are excluded from the final score.</div>
       <div id="modality-meters-container" class="modality-container">
         <!-- Visual Modality -->
         <div class="modality-row">
@@ -106,10 +111,14 @@
         <span class="tags-label">Components:</span>
         <div id="popup-components-list" class="tags-list"></div>
       </div>
+      <div class="recalculate-controls">
+        <button id="recalculate-btn" class="btn btn-secondary" type="button">Recalculate stored data</button>
+        <div id="recalculate-status" class="recalculate-status" role="status"></div>
+      </div>
     </section>
 
     <!-- Multimodal Ingestion Pipeline Info -->
-    <section class="card">
+    <section class="card debug-only">
       <div class="card-header">
         <span class="card-title">Multimodal Ingestion</span>
         <span class="badge badge-complete">Automated</span>
@@ -123,6 +132,10 @@
     <section class="card">
       <div class="card-header">
         <span class="card-title">Preferences</span>
+      </div>
+      <div class="setting-row">
+        <label for="toggle-debug-mode">Debug Mode (Side Panel)</label>
+        <input type="checkbox" id="toggle-debug-mode">
       </div>
       <div class="setting-row">
         <label for="toggle-contribution">Crowdsourced Contribution</label>

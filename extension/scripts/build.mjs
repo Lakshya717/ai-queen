@@ -60,6 +60,11 @@ async function build() {
   popupHtml = popupHtml.replace('src="./popup.ts"', 'src="./popup.js"');
   fs.writeFileSync(path.join(distDir, 'src/contexts/popup.html'), popupHtml);
 
+  // The side panel reuses the popup UI and marks its surface for responsive layout
+  // and debug-mode gating without maintaining a second HTML document.
+  const sidepanelHtml = popupHtml.replace('<body>', '<body data-surface="side-panel">');
+  fs.writeFileSync(path.join(distDir, 'src/contexts/sidepanel.html'), sidepanelHtml);
+
   console.log('Build complete! Output emitted to dist/');
 }
 

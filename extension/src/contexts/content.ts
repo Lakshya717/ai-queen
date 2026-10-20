@@ -150,14 +150,23 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
       });
       return true;
     }
+
+    if (message.type === 'refresh-analysis' && currentVideoId) {
+      checkAutoAnalysis(currentVideoId, true)
+        .then(() => sendResponse({ ok: true }))
+        .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
+      return true;
+    }
   });
 
   let isCheckingAutoAnalysis = false;
   let lastAutoAnalysisCheckMs = 0;
 
-  function checkAutoAnalysis(videoId: string) {
+  function checkAutoAnalysis(videoId: string, force = false): Promise<void> {
     const now = Date.now();
-    if (isCheckingAutoAnalysis || now - lastAutoAnalysisCheckMs < 4000) return;
+    if (isCheckingAutoAnalysis || (!force && now - lastAutoAnalysisCheckMs < 4000)) {
+      return Promise.resolve();
+    }
     isCheckingAutoAnalysis = true;
     lastAutoAnalysisCheckMs = now;
 
@@ -165,24 +174,30 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
       ? activeVideoElement.duration
       : undefined;
 
-    const timeoutId = setTimeout(() => {
-      isCheckingAutoAnalysis = false;
-    }, 10000);
-
-    chrome.runtime.sendMessage(
-      { type: 'lookup-video', videoId, duration: videoDur, forceRefresh: true },
-      (res) => {
-        clearTimeout(timeoutId);
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
         isCheckingAutoAnalysis = false;
-        if (res && res.ok && res.lookup) {
-          const freshLookup = res.lookup as VideoLookupResponseDto;
-          currentLookup = freshLookup;
-          segmentScheduler.updateMissingIndices(currentLookup.missingSegmentIndices);
-          renderOnPageBadges(currentLookup);
-          applyFiltering(currentLookup);
+        reject(new Error('Timed out while refreshing analysis'));
+      }, 10000);
+
+      chrome.runtime.sendMessage(
+        { type: 'lookup-video', videoId, duration: videoDur, forceRefresh: true },
+        (res) => {
+          clearTimeout(timeoutId);
+          isCheckingAutoAnalysis = false;
+          if (res?.ok && res.lookup) {
+            const freshLookup = res.lookup as VideoLookupResponseDto;
+            currentLookup = freshLookup;
+            segmentScheduler.updateMissingIndices(currentLookup.missingSegmentIndices);
+            renderOnPageBadges(currentLookup);
+            applyFiltering(currentLookup);
+            resolve();
+          } else {
+            reject(new Error(res?.error || 'Unable to refresh analysis'));
+          }
         }
-      }
-    );
+      );
+    });
   }
 
   // 4. Hook SPA Navigation

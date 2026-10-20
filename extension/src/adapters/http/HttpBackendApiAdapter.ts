@@ -104,6 +104,21 @@ export class HttpBackendApiAdapter implements IBackendApiAdapter {
     });
   }
 
+  public async recalculateVideo(
+    videoId: string,
+    signal?: AbortSignal
+  ): Promise<VideoLookupResponseDto> {
+    const url = `${this.config.baseUrl}/content/youtube/${encodeURIComponent(videoId)}/analysis/recalculate`;
+    return this.fetchWithRetry<VideoLookupResponseDto>(url, {
+      method: 'POST',
+      headers: {
+        ...this.buildHeaders(),
+        'Content-Type': 'application/json',
+      },
+      signal,
+    });
+  }
+
   private buildHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
       Accept: 'application/json',

@@ -1,7 +1,7 @@
 """
 Multimodal Fusion Engine.
-Fuses collected component scores into segment-level and video-level AI-reliance ratings,
-normalizing weights across available modalities and applying classification thresholds.
+Fuses collected component scores into segment-level and video-level AI-reliance ratings
+while preserving configured modality weights when evidence is unavailable.
 """
 
 import math
@@ -11,13 +11,14 @@ from ..models import Video, VideoSegment
 from .base_connector import CollectedScoreRecord
 
 DEFAULT_MODALITY_WEIGHTS: Dict[str, float] = {
-    "visual": 0.50,
-    "text": 0.30,
-    "temporal": 0.10,
-    "audio": 0.10,
+    "visual": 0.3,
+    "text": 0.7,
+    "temporal": 0.0,
+    "audio": 0.0,
 }
 
-AI_THRESHOLD = 0.70
+MISSING_MODALITY_SCORE = 0.5
+AI_THRESHOLD = 0.65
 MIXED_THRESHOLD = 0.35
 
 
@@ -47,17 +48,25 @@ class FusionEngine:
             confs = [r.confidence for r in recs if r.confidence is not None]
             modality_confidences[m] = (sum(confs) / len(confs)) if confs else 0.70
 
-        # Normalize weights over available modalities
-        total_w = sum(self.weights.get(m, 0.10) for m in modality_scores)
+        # Keep configured weights stable. Missing active modalities are unknown,
+        # not evidence that the available modalities should receive more weight.
+        active_weights = {
+            modality: weight
+            for modality, weight in self.weights.items()
+            if weight > 0
+        }
+        total_w = sum(active_weights.values())
         if total_w <= 0:
-            total_w = 1.0
+            return None, None
 
         fused_score = 0.0
         fused_conf = 0.0
-        for m, s in modality_scores.items():
-            w = self.weights.get(m, 0.10) / total_w
-            fused_score += w * s
-            fused_conf += w * modality_confidences.get(m, 0.70)
+        for modality, configured_weight in active_weights.items():
+            weight = configured_weight / total_w
+            score = modality_scores.get(modality, MISSING_MODALITY_SCORE)
+            confidence = modality_confidences.get(modality, 0.0)
+            fused_score += weight * score
+            fused_conf += weight * confidence
 
         return round(fused_score, 4), round(fused_conf, 4)
 

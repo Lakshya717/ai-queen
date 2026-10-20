@@ -4,6 +4,9 @@ import { CURRENT_POLICY_VERSION } from '../domain/models/PolicyState';
 const consentAdapter = new StoragePolicyConsentAdapter();
 
 async function initPopup() {
+  const isSidePanel = document.body.dataset.surface === 'side-panel';
+  const debugModeBanner = document.getElementById('debug-mode-banner') as HTMLElement;
+  const debugOnlySections = Array.from(document.querySelectorAll<HTMLElement>('.debug-only'));
   const policyBanner = document.getElementById('policy-banner') as HTMLElement;
   const acceptPolicyBtn = document.getElementById('accept-policy-btn') as HTMLButtonElement;
   const liveBadge = document.getElementById('live-state-badge') as HTMLElement;
@@ -11,6 +14,7 @@ async function initPopup() {
   const coverageText = document.getElementById('video-coverage-text') as HTMLElement;
   const progressFill = document.getElementById('coverage-progress-fill') as HTMLElement;
 
+  const toggleDebugMode = document.getElementById('toggle-debug-mode') as HTMLInputElement;
   const toggleContribution = document.getElementById('toggle-contribution') as HTMLInputElement;
   const toggleBadges = document.getElementById('toggle-badges') as HTMLInputElement;
   const selectFilterMode = document.getElementById('select-filter-mode') as HTMLSelectElement;
@@ -36,6 +40,43 @@ async function initPopup() {
   const anomalyText = document.getElementById('popup-anomaly-text') as HTMLElement;
   const componentsContainer = document.getElementById('popup-components-container') as HTMLElement;
   const componentsList = document.getElementById('popup-components-list') as HTMLElement;
+  const recalculateBtn = document.getElementById('recalculate-btn') as HTMLButtonElement;
+  const recalculateStatus = document.getElementById('recalculate-status') as HTMLElement;
+  let displayedVideoId: string | null = null;
+  let displayedTabId: number | null = null;
+  let refreshGeneration = 0;
+
+  const resetAnalysisDisplay = () => {
+    if (analysisSummaryBadge) {
+      analysisSummaryBadge.textContent = 'Awaiting Data';
+      analysisSummaryBadge.className = 'badge badge-inactive';
+    }
+
+    for (const key of ['visual', 'text', 'temporal', 'audio']) {
+      if (modalityVals[key]) modalityVals[key]!.textContent = '--';
+      if (meterFills[key]) {
+        meterFills[key]!.style.width = '0%';
+        meterFills[key]!.className = 'meter-bar-fill fill-low';
+      }
+    }
+
+    anomalyBox?.classList.add('hidden');
+    if (componentsContainer) componentsContainer.classList.add('hidden');
+    if (componentsList) componentsList.innerHTML = '';
+  };
+
+  const resetStatusDisplay = () => {
+    displayedVideoId = null;
+    displayedTabId = null;
+    if (videoIdDisplay) videoIdDisplay.textContent = 'No active YouTube tab';
+    if (liveBadge) {
+      liveBadge.textContent = 'INACTIVE';
+      liveBadge.className = 'badge badge-inactive';
+    }
+    if (coverageText) coverageText.textContent = 'Open a YouTube video to detect AI reliance';
+    if (progressFill) progressFill.style.width = '0%';
+    resetAnalysisDisplay();
+  };
 
   // 1. Load preferences and policy status
   const prefs = await consentAdapter.getPreferences();
@@ -46,6 +87,7 @@ async function initPopup() {
   }
 
   if (toggleContribution) toggleContribution.checked = prefs.contributionEnabled;
+  if (toggleDebugMode) toggleDebugMode.checked = prefs.debugMode;
   if (toggleBadges) toggleBadges.checked = prefs.showBadges;
   if (selectFilterMode) selectFilterMode.value = prefs.filterMode;
   if (rangeThreshold) rangeThreshold.value = String(Math.round(prefs.threshold * 100));
@@ -82,22 +124,84 @@ async function initPopup() {
     await consentAdapter.savePreferences({ threshold: thresholdNum });
   });
 
+  const updateDebugSurface = (debugMode: boolean) => {
+    if (!isSidePanel) return;
+    debugOnlySections.forEach((section: HTMLElement) => section.classList.toggle('hidden', !debugMode));
+    debugModeBanner?.classList.toggle('hidden', debugMode);
+  };
+
+  updateDebugSurface(prefs.debugMode);
+
+  recalculateBtn?.addEventListener('click', async () => {
+    if (!displayedVideoId) {
+      recalculateStatus.textContent = 'Open a YouTube video first.';
+      return;
+    }
+    recalculateBtn.disabled = true;
+    recalculateStatus.textContent = 'Recalculating stored evidence...';
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'recalculate-video',
+        videoId: displayedVideoId,
+      });
+      if (!response?.ok) throw new Error(response?.error || 'Recalculation failed');
+      recalculateStatus.textContent = 'Recalculated. Refreshing display...';
+      if (displayedTabId !== null) {
+        await new Promise<void>((resolve, reject) => {
+          chrome.tabs.sendMessage(displayedTabId!, { type: 'refresh-analysis' }, (refreshResponse) => {
+            if (chrome.runtime.lastError) {
+              reject(new Error(chrome.runtime.lastError.message));
+            } else if (refreshResponse?.ok === false) {
+              reject(new Error(refreshResponse.error || 'Unable to refresh the tab'));
+            } else {
+              resolve();
+            }
+          });
+        });
+      }
+      await refreshStatus();
+      recalculateStatus.textContent = 'Done.';
+    } catch (error) {
+      recalculateStatus.textContent = `Failed: ${error instanceof Error ? error.message : String(error)}`;
+    } finally {
+      recalculateBtn.disabled = false;
+    }
+  });
+
+  toggleDebugMode?.addEventListener('change', async () => {
+    await consentAdapter.savePreferences({ debugMode: toggleDebugMode.checked });
+    updateDebugSurface(toggleDebugMode.checked);
+  });
+
   // 4. Query active YouTube tab for status
   async function refreshStatus() {
     if (typeof chrome === 'undefined' || !chrome.tabs) return;
 
     try {
+      const generation = ++refreshGeneration;
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab || !tab.id || !tab.url || !tab.url.includes('youtube.com')) {
-        if (videoIdDisplay) videoIdDisplay.textContent = 'No active YouTube tab';
+        resetStatusDisplay();
         return;
       }
 
+      const requestedTabId = tab.id;
       chrome.tabs.sendMessage(tab.id, { type: 'get-status' }, (response) => {
-        if (chrome.runtime.lastError || !response) return;
+        if (generation !== refreshGeneration) return;
+        if (chrome.runtime.lastError || !response) {
+          resetStatusDisplay();
+          return;
+        }
 
-        if (response.videoId && videoIdDisplay) {
-          videoIdDisplay.textContent = `Video ID: ${response.videoId}`;
+        const responseVideoId = typeof response.videoId === 'string' ? response.videoId : null;
+        if (displayedTabId !== requestedTabId || displayedVideoId !== responseVideoId) {
+          resetAnalysisDisplay();
+          displayedTabId = requestedTabId;
+          displayedVideoId = responseVideoId;
+        }
+
+        if (responseVideoId && videoIdDisplay) {
+          videoIdDisplay.textContent = `Video ID: ${responseVideoId}`;
         }
 
         if (response.stateName && liveBadge) {
@@ -126,14 +230,22 @@ async function initPopup() {
           }
 
           const averages = summary?.modalityAverages || {};
+          const weights = summary?.modalityWeights || {};
           const modalityKeys = ['visual', 'text', 'temporal', 'audio'];
 
           for (const key of modalityKeys) {
             const valEl = modalityVals[key];
             const fillEl = meterFills[key];
             const val = averages[key] !== undefined ? averages[key] : (key === 'visual' && score != null ? score : null);
+            const isExcluded = weights[key] !== undefined && weights[key] <= 0;
 
-            if (val !== null && val !== undefined) {
+            if (isExcluded) {
+              if (valEl) valEl.textContent = 'Excluded';
+              if (fillEl) {
+                fillEl.style.width = '0%';
+                fillEl.className = 'meter-bar-fill fill-low';
+              }
+            } else if (val !== null && val !== undefined) {
               const pct = Math.round(val * 100);
               if (valEl) valEl.textContent = `${pct}%`;
               if (fillEl) {
@@ -224,10 +336,20 @@ async function initPopup() {
             }
           }
           if (componentsContainer) componentsContainer.classList.add('hidden');
+          if (modalityVals.visual) modalityVals.visual.textContent = '--';
+          if (modalityVals.text) modalityVals.textContent = '--';
+          if (modalityVals.temporal) modalityVals.temporal.textContent = '--';
+          if (modalityVals.audio) modalityVals.audio.textContent = '--';
+          for (const key of ['visual', 'text', 'temporal', 'audio']) {
+            if (meterFills[key]) {
+              meterFills[key]!.style.width = '0%';
+              meterFills[key]!.className = 'meter-bar-fill fill-low';
+            }
+          }
         }
       });
     } catch {
-      // Ignore
+      resetStatusDisplay();
     }
   }
 

@@ -1,5 +1,6 @@
 export interface UserPreferences {
   readonly enabled: boolean;
+  readonly debugMode: boolean;
   readonly contributionEnabled: boolean;
   readonly acceptedPolicyVersion: string | null;
   readonly acceptedAt: string | null;
@@ -12,6 +13,7 @@ export const CURRENT_POLICY_VERSION = 'v1';
 
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   enabled: true,
+  debugMode: false,
   contributionEnabled: true,
   acceptedPolicyVersion: null,
   acceptedAt: null,

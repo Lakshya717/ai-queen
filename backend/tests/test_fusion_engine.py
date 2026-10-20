@@ -1,7 +1,7 @@
 """
 Tests for Multimodal Fusion Engine.
-Verifies dynamic weight normalization, missing modality fallback, time-weighted video aggregation,
-and verdict thresholding.
+Verifies stable configured weights, missing modality handling, time-weighted video
+aggregation, and verdict thresholding.
 """
 
 from django.test import TestCase
@@ -41,30 +41,38 @@ class FusionEngineTestCase(TestCase):
             CollectedScoreRecord(component_name="temp", modality="temporal", score=0.40, status="SUCCESS"),
             CollectedScoreRecord(component_name="aud", modality="audio", score=0.50, status="SUCCESS"),
         ]
-        # weights: 0.50, 0.30, 0.10, 0.10 -> total 1.0
-        # expected: 0.50*0.80 + 0.30*0.60 + 0.10*0.40 + 0.10*0.50 = 0.40 + 0.18 + 0.04 + 0.05 = 0.67
+        # weights: 0.30, 0.70, 0.0, 0.0 -> total 1.0
+        # expected: 0.30*0.80 + 0.70*0.60 = 0.24 + 0.42 = 0.66
         score, conf = self.fusion.fuse_records(records)
-        self.assertAlmostEqual(score, 0.67, places=2)
+        self.assertAlmostEqual(score, 0.66, places=2)
 
-    def test_fuse_with_skipped_and_failed_modalities(self):
+    def test_missing_active_modality_uses_neutral_score_without_weight_promotion(self):
         records = [
             CollectedScoreRecord(component_name="vis", modality="visual", score=0.90, status="SUCCESS"),
             CollectedScoreRecord(component_name="txt", modality="text", score=None, status="SKIPPED"),
             CollectedScoreRecord(component_name="temp", modality="temporal", score=None, status="FAILED"),
             CollectedScoreRecord(component_name="aud", modality="audio", score=0.30, status="SUCCESS"),
         ]
-        # available: visual (0.50), audio (0.10) -> total 0.60
-        # normalized: vis = 0.5/0.6 (~0.8333), aud = 0.1/0.6 (~0.1667)
-        # expected: (0.5*0.90 + 0.1*0.30) / 0.60 = (0.45 + 0.03)/0.6 = 0.48 / 0.60 = 0.80
+        # Text remains 70% of the configured policy and contributes neutral
+        # uncertainty instead of promoting visual to 100%.
         score, _ = self.fusion.fuse_records(records)
-        self.assertAlmostEqual(score, 0.80, places=2)
+        self.assertAlmostEqual(score, 0.62, places=2)
+
+    def test_zero_weight_modalities_do_not_affect_fusion(self):
+        records = [
+            CollectedScoreRecord(component_name="vis", modality="visual", score=0.90, status="SUCCESS"),
+            CollectedScoreRecord(component_name="temp", modality="temporal", score=0.10, status="SUCCESS"),
+            CollectedScoreRecord(component_name="aud", modality="audio", score=0.10, status="SUCCESS"),
+        ]
+        score, _ = self.fusion.fuse_records(records)
+        self.assertAlmostEqual(score, 0.62, places=2)
 
     def test_fuse_single_modality(self):
         records = [
             CollectedScoreRecord(component_name="vis", modality="visual", score=0.75, status="SUCCESS"),
         ]
         score, _ = self.fusion.fuse_records(records)
-        self.assertAlmostEqual(score, 0.75, places=2)
+        self.assertAlmostEqual(score, 0.575, places=2)
 
     def test_fuse_empty_records(self):
         records = [
