@@ -5,13 +5,19 @@ aggregation, and verdict thresholding.
 """
 
 from django.test import TestCase
+from unittest.mock import patch
 from apps.content.models import Video, VideoSegment
 from apps.content.inference.base_connector import CollectedScoreRecord
-from apps.content.inference.fusion import FusionEngine, DEFAULT_MODALITY_WEIGHTS
+from apps.content.inference.fusion import (
+    FusionEngine,
+    DEFAULT_MODALITY_WEIGHTS,
+)
 
 
 class FusionEngineTestCase(TestCase):
     def setUp(self):
+        self.inflation_patcher = patch("apps.content.inference.fusion.SCORE_INFLATION_PERCENT", 0.0)
+        self.inflation_patcher.start()
         self.fusion = FusionEngine()
         self.video = Video.objects.create(
             video_id="fuseTestVid",
@@ -33,6 +39,10 @@ class FusionEngineTestCase(TestCase):
             end_seconds=60.0,
             coverage_status="complete",
         )
+
+    def tearDown(self):
+        self.inflation_patcher.stop()
+        super().tearDown()
 
     def test_fuse_all_modalities(self):
         records = [
@@ -81,6 +91,25 @@ class FusionEngineTestCase(TestCase):
         score, conf = self.fusion.fuse_records(records)
         self.assertIsNone(score)
         self.assertIsNone(conf)
+
+    def test_score_inflation_raises_component_and_video_scores(self):
+        records = [
+            CollectedScoreRecord(component_name="vis", modality="visual", score=0.80, status="SUCCESS"),
+            CollectedScoreRecord(component_name="txt", modality="text", score=0.60, status="SUCCESS"),
+        ]
+
+        with patch("apps.content.inference.fusion.SCORE_INFLATION_PERCENT", 20.0):
+            segment_score, _ = self.fusion.fuse_records(records)
+
+            self.seg0.ai_segment_score = segment_score
+            self.seg0.save()
+            self.seg1.ai_segment_score = segment_score
+            self.seg1.save()
+            self.fusion.aggregate_video_score(self.video)
+
+        self.video.refresh_from_db()
+        self.assertAlmostEqual(segment_score, 0.792, places=3)
+        self.assertAlmostEqual(self.video.ai_reliance_score, 0.9504, places=3)
 
     def test_aggregate_video_score_and_labels(self):
         # Segment 0 score = 0.80, Segment 1 score = 0.60

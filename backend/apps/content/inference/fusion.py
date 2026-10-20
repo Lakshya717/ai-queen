@@ -20,6 +20,15 @@ DEFAULT_MODALITY_WEIGHTS: Dict[str, float] = {
 MISSING_MODALITY_SCORE = 0.5
 AI_THRESHOLD = 0.65
 MIXED_THRESHOLD = 0.35
+# Set this to a percentage such as 10.0 to increase scores by 10%.
+# It only raises scores and never makes them less sensitive or lowers them.
+SCORE_INFLATION_PERCENT = 90.0
+
+
+def _apply_score_inflation(score: float) -> float:
+    """Raises a score by the configured percentage without exceeding 1.0."""
+    adjusted = score * (1.0 + (SCORE_INFLATION_PERCENT / 100.0))
+    return max(0.0, min(1.0, adjusted))
 
 
 class FusionEngine:
@@ -44,7 +53,8 @@ class FusionEngine:
         modality_confidences: Dict[str, float] = {}
 
         for m, recs in by_modality.items():
-            modality_scores[m] = sum(r.score for r in recs) / len(recs)
+            raw_score = sum(r.score for r in recs) / len(recs)
+            modality_scores[m] = _apply_score_inflation(raw_score)
             confs = [r.confidence for r in recs if r.confidence is not None]
             modality_confidences[m] = (sum(confs) / len(confs)) if confs else 0.70
 
@@ -98,7 +108,8 @@ class FusionEngine:
             weighted_score_sum += dur * s.ai_segment_score
             total_weight += dur
 
-        final_score = weighted_score_sum / total_weight if total_weight > 0 else 0.0
+        raw_final_score = weighted_score_sum / total_weight if total_weight > 0 else 0.0
+        final_score = _apply_score_inflation(raw_final_score)
         final_score = round(final_score, 4)
 
         if final_score >= AI_THRESHOLD:

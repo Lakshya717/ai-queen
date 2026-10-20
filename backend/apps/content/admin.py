@@ -3,6 +3,8 @@ Django Admin Configuration for AI Detection Content & Evidence.
 Provides a visual inspection dashboard for videos, segments, intervals, contributions, and inference jobs.
 """
 
+import math
+
 from django.contrib import admin
 from .models import Video, VideoSegment, SegmentInterval, Contribution, VideoTranscript, InferenceJob, SegmentComponentScore
 
@@ -24,11 +26,40 @@ class VideoSegmentInline(admin.TabularInline):
 
 @admin.register(Video)
 class VideoAdmin(admin.ModelAdmin):
-    list_display = ('video_id', 'status', 'label', 'ai_reliance_score', 'confidence', 'segment_duration_seconds', 'created_at')
+    list_display = (
+        'video_id',
+        'status',
+        'label',
+        'coverage_percentage',
+        'ai_reliance_score',
+        'confidence',
+        'segment_duration_seconds',
+        'created_at',
+    )
     list_filter = ('status', 'label', 'created_at')
     search_fields = ('video_id', 'title', 'channel')
     readonly_fields = ('created_at', 'updated_at')
     inlines = [VideoSegmentInline]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related('segments')
+
+    @admin.display(description='Coverage %')
+    def coverage_percentage(self, obj):
+        total_expected_segments = (
+            math.ceil(obj.duration_seconds / obj.segment_duration_seconds)
+            if obj.duration_seconds > 0 and obj.segment_duration_seconds > 0
+            else obj.segments.count()
+        )
+        if total_expected_segments <= 0:
+            return '0.0%'
+
+        complete_segments = sum(
+            segment.coverage_status == 'complete'
+            for segment in obj.segments.all()
+        )
+        percentage = complete_segments / total_expected_segments * 100.0
+        return f'{percentage:.1f}%'
 
 
 @admin.register(VideoSegment)
