@@ -51,12 +51,26 @@ class InferenceDispatcher:
             logger.warning(f"Manifest not found at {manifest_path} for video {video.video_id} segment {segment.segment_index}")
             return []
 
+        logger.info(
+            "⚡ Segment #%d [%.1fs - %.1fs]: executing %d connectors for video '%s'...",
+            segment.segment_index, segment.start_seconds, segment.end_seconds,
+            len(self.connectors), video.video_id,
+        )
+
         context = SegmentContext.from_manifest_file(manifest_path, self.media_root)
 
         records: List[CollectedScoreRecord] = []
         for connector in self.connectors:
             record = connector.run(context)
             records.append(record)
+
+            logger.info(
+                "  └─ Connector '%s' (%s): score=%s confidence=%s status=%s time=%.1fms",
+                record.component_name, record.modality,
+                f"{record.score:.4f}" if record.score is not None else "N/A",
+                f"{record.confidence:.2f}" if record.confidence is not None else "N/A",
+                record.status, record.execution_time_ms,
+            )
 
             # Persist individual component score record
             SegmentComponentScore.objects.update_or_create(
@@ -75,6 +89,13 @@ class InferenceDispatcher:
 
         # Multimodal fusion
         self.fusion.update_segment_score(segment, records)
+        segment.refresh_from_db()
+        logger.info(
+            "✨ Segment #%d fused score: %s",
+            segment.segment_index,
+            f"{segment.ai_segment_score:.4f}" if segment.ai_segment_score is not None else "N/A",
+        )
+
         self.fusion.aggregate_video_score(video)
 
         # Update InferenceJob status if provided
@@ -105,10 +126,24 @@ class InferenceDispatcher:
             logger.error(f"Video '{video_id}' not found for dispatch")
             return []
 
+        segments = list(video.segments.all().order_by("segment_index"))
+        logger.info(
+            "🚀 Starting inference dispatch for video '%s' (%d segments, duration=%.1fs)",
+            video_id, len(segments), video.duration_seconds,
+        )
+
         all_records: List[CollectedScoreRecord] = []
-        for segment in video.segments.all().order_by("segment_index"):
+        for segment in segments:
             records = self.dispatch_segment(segment.id)
             all_records.extend(records)
 
         video.refresh_from_db()
+        logger.info(
+            "🎯 Video '%s' aggregation complete: score=%s, label=%s, confidence=%s, status=%s",
+            video.video_id,
+            f"{video.ai_reliance_score:.4f}" if video.ai_reliance_score is not None else "N/A",
+            video.label, 
+            f"{video.confidence:.2f}" if video.confidence is not None else "N/A",
+            video.status,
+        )
         return all_records

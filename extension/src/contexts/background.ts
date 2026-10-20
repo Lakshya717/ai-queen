@@ -43,10 +43,10 @@ async function handleMessage(message: { type: string; [key: string]: unknown }):
       const forceRefresh = Boolean(message.forceRefresh);
       if (!videoId) return { ok: false, error: 'Missing videoId' };
 
-      // 1. Check local cache (only if not forcing refresh and entry is complete with scores)
+      // 1. Check local cache (only if not forcing refresh and entry has score or is complete)
       if (!forceRefresh) {
         const cached = await cacheRepo.get(videoId);
-        if (cached && cached.status === 'complete' && cached.aiRelianceScore != null) {
+        if (cached && (cached.status === 'complete' || cached.aiRelianceScore != null)) {
           return { ok: true, lookup: cached, fromCache: true };
         }
       }
@@ -54,7 +54,11 @@ async function handleMessage(message: { type: string; [key: string]: unknown }):
       // 2. Query backend adapter
       const lookup = await backendAdapter.lookupVideoCoverage(videoId, undefined, duration);
       if (lookup && lookup.status !== 'not_found') {
-        await cacheRepo.set(videoId, lookup);
+        try {
+          await cacheRepo.set(videoId, lookup);
+        } catch (err) {
+          console.warn(`[Background] Failed to cache lookup for ${videoId}:`, err);
+        }
       }
 
       return { ok: true, lookup, fromCache: false };
@@ -71,7 +75,11 @@ async function handleMessage(message: { type: string; [key: string]: unknown }):
 
       // Invalidate or update local cache
       const updatedLookup = await backendAdapter.lookupVideoCoverage(pkg.videoId, undefined, videoDuration);
-      await cacheRepo.set(pkg.videoId, updatedLookup);
+      try {
+        await cacheRepo.set(pkg.videoId, updatedLookup);
+      } catch (err) {
+        console.warn(`[Background] Failed to cache updatedLookup for ${pkg.videoId}:`, err);
+      }
 
       return { ok: true, result, updatedLookup };
     }

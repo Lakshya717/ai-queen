@@ -31,6 +31,8 @@ docs/
 │   ├── AUDIO_CAPTURE_ANALYSIS_AND_MEMO.md   # YouTube MSE demuxing audit & tabCapture sandbox memo
 │   ├── MOTION_ADAPTIVE_FRAME_SAMPLING_MEMO.md # Motion-adaptive frame sampling specification (Implemented)
 │   ├── MOTION_ADAPTIVE_SAMPLING_WALKTHROUGH.md # ⭐ Walkthrough of completed pixelmatch sampling engine
+│   ├── FRAME_QUOTA_DRIFT_ROOT_CAUSE_REPORT.md # Frame quota drift root-cause report
+│   ├── END_TO_END_AUDIO_CAPTION_COVERAGE_AUDIT.md # Audio and caption coverage audit
 │   └── MODULAR_SCORING_PIPELINE_WALKTHROUGH.md # ⭐ Walkthrough of completed modular multi-component scoring engine
 │
 └── plans/                            # Foundational specifications & session implementation plans
@@ -48,6 +50,7 @@ docs/
     ├── server_side_audio_pipeline_and_client_simplification_plan.md # Approved server-side audio plan
     ├── motion_adaptive_frame_sampling_plan.md               # Motion-adaptive sampling plan
     ├── motion_adaptive_frame_sampling_optimization_plan.md  # ⭐ Implemented Mapbox pixelmatch sampling plan
+    ├── FRAME_QUOTA_AND_MODALITY_ALIGNMENT_IMPLEMENTATION_PLAN.md # Quota and modality alignment fix plan
     ├── developer_documentation_reorganization_plan.md       # Documentation reorganization plan
     └── MODULAR_SCORING_PIPELINE_PLAN.md                     # ⭐ Implemented Modular Multi-Component AI Scoring Plan
 ```
@@ -72,6 +75,8 @@ Every document in this vault is indexed below with its authorial provenance:
 * **[`WALKTHROUGH.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/WALKTHROUGH.md)** *(Authored by Other Agentic Session - Pending Separate Review)*: Forensic RCA of `Qp2zfpqogxU`'s unplayable WebM file, Chromium `MediaRecorder` async flush bug resolution, and implementation of the server-side `yt-dlp` audio pipeline.
 * **[`MOTION_ADAPTIVE_FRAME_SAMPLING_MEMO.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/MOTION_ADAPTIVE_FRAME_SAMPLING_MEMO.md)** *(Updated in THIS Session)*: Technical specification for motion-adaptive frame sampling (~55% payload reduction; updated to Implemented & Verified).
 * **[`MOTION_ADAPTIVE_SAMPLING_WALKTHROUGH.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/MOTION_ADAPTIVE_SAMPLING_WALKTHROUGH.md)** *(Authored in THIS Session)*: Technical walkthrough and test audit of the completed Mapbox `pixelmatch` motion-adaptive sampling implementation.
+* **[`FRAME_QUOTA_DRIFT_ROOT_CAUSE_REPORT.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/FRAME_QUOTA_DRIFT_ROOT_CAUSE_REPORT.md)** *(Authored in THIS Session)*: Root-cause analysis of periodic sampling and backend quota drift.
+* **[`END_TO_END_AUDIO_CAPTION_COVERAGE_AUDIT.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/memo/END_TO_END_AUDIO_CAPTION_COVERAGE_AUDIT.md)** *(Authored in THIS Session)*: End-to-end audit of server audio and transcript evidence.
 
 ### 3. Foundational External Plans (`docs/plans/design plans/` & `docs/plans/implementation plans/`)
 * **[`AI lab abstract.pdf`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/plans/design%20plans/AI%20lab%20abstract.pdf)** *(Pre-existing / External Academic Team)*: Original project abstract, problem statement, crowdsourcing rationale, and student ownership roles.
@@ -87,6 +92,7 @@ Every document in this vault is indexed below with its authorial provenance:
 * **[`tab_audio_capture_and_popup_ux_plan.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/plans/tab_audio_capture_and_popup_ux_plan.md)** *(Authored by Other Agentic Session - Pending Separate Review)*: Intermediate plan exploring tabCapture popup UX before server-side transition.
 * **[`youtube_audio_root_cause_and_multi_layer_fix_plan.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/plans/youtube_audio_root_cause_and_multi_layer_fix_plan.md)** *(Authored by Other Agentic Session - Pending Separate Review)*: Multi-layer audio fix plan.
 * **[`developer_documentation_reorganization_plan.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/plans/developer_documentation_reorganization_plan.md)** *(Authored by Other Agentic Session - Pending Separate Review)*: Plan for documentation directory organization.
+* **[`FRAME_QUOTA_AND_MODALITY_ALIGNMENT_IMPLEMENTATION_PLAN.md`](file:///C:/Users/Lakshya/Desktop/AI%20Project/docs/plans/FRAME_QUOTA_AND_MODALITY_ALIGNMENT_IMPLEMENTATION_PLAN.md)** *(Authored in THIS Session)*: Implementation plan for cumulative quota accounting and modality alignment.
 
 ---
 

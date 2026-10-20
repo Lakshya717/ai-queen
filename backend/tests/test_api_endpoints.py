@@ -5,6 +5,7 @@ Integration Tests for REST API Endpoints:
 """
 
 import base64
+from unittest.mock import patch
 from django.test import TestCase
 from rest_framework.test import APIClient
 from apps.content.models import Video, VideoSegment, SegmentInterval, Contribution, InferenceJob
@@ -175,6 +176,44 @@ class ApiEndpointTests(TestCase):
         self.assertEqual(lookup_data['missingSegmentIndices'], [])
         self.assertEqual(lookup_data['segments'][0]['coverage'], 'complete')
 
+    @patch('apps.content.views.MediaStorageService.save_audio_chunks', return_value=[])
+    def test_periodic_single_frame_contributions_accumulate_to_completion(self, _save_audio):
+        """Dynamic sampling flushes one frame per short package; quota is segment-wide."""
+        video_id = "periodicFlushVideo"
+        dummy_frame = base64.b64encode(b"\xFF\xD8\xFFDUMMY_IMAGE").decode('ascii')
+
+        for start, end in ((0.0, 10.0), (10.0, 20.0), (20.0, 30.0)):
+            payload = {
+                "videoId": video_id,
+                "segmentIndex": 0,
+                "segmentStartSeconds": 0.0,
+                "segmentEndSeconds": 30.0,
+                "observedIntervals": [{"startSeconds": start, "endSeconds": end}],
+                "frames": [
+                    {
+                        "videoTimestampSeconds": start,
+                        "mimeType": "image/jpeg",
+                        "data": dummy_frame,
+                        "width": 1280,
+                        "height": 720,
+                    }
+                ],
+            }
+            response = self.client.post(
+                f'/v1/content/youtube/{video_id}/contributions',
+                data=payload,
+                format='json',
+            )
+            self.assertEqual(response.status_code, 200)
+
+        segment = VideoSegment.objects.get(video__video_id=video_id, segment_index=0)
+        self.assertEqual(segment.frame_count, 3)
+        self.assertEqual(segment.coverage_status, 'complete')
+        self.assertEqual(
+            self.client.get(f'/v1/content/youtube/{video_id}').json()['missingSegmentIndices'],
+            [],
+        )
+
     def test_lookup_unmapped_with_duration_query_param(self):
         # When extension queries with ?duration=95, it should synthesize 4 segments (0, 1, 2, 3)
         resp = self.client.get('/v1/content/youtube/newVidWithDuration?duration=95')
@@ -271,4 +310,3 @@ class ApiEndpointTests(TestCase):
             manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
             self.assertEqual(len(manifest['segment_cues']), 1)
             self.assertEqual(manifest['segment_cues'][0]['text'], 'In-segment speech')
-

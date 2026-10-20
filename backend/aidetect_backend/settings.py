@@ -172,3 +172,50 @@ REST_FRAMEWORK = {
 # Automatically initiates modular inference analysis when video coverage is >= this percentage upon user lookup.
 ANALYSIS_COVERAGE_THRESHOLD_PERCENT = float(os.getenv('ANALYSIS_COVERAGE_THRESHOLD_PERCENT', '90'))
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Logging Configuration
+# ──────────────────────────────────────────────────────────────────────────────
+# - apps.content logs at DEBUG level for full visibility into ingestion, coverage, and inference.
+# - Set environment variable DJANGO_LOG_SQL=1 to enable SQL query logging (django.db.backends).
+# - Example:  $env:DJANGO_LOG_SQL="1"; python manage.py runserver 8000
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '[{asctime}] {levelname} [{name}:{lineno}] {message}',
+            'style': '{',
+        },
+        'sql': {
+            'format': '\033[94m[SQL]\033[0m {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'sql_console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'sql',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+        },
+        'apps.content': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'django.db.backends': {
+            'handlers': ['sql_console'],
+            'level': 'DEBUG' if os.environ.get('DJANGO_LOG_SQL', '0') == '1' else 'WARNING',
+            'propagate': False,
+        },
+    },
+}
+

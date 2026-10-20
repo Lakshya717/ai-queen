@@ -73,6 +73,9 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
     const duration = activeVideoElement?.duration;
     if (typeof duration === 'number' && !isNaN(duration) && duration > 0 && isFinite(duration)) {
       if (!currentLookup || currentLookup.segments.length === 0) {
+        if (currentLookup && currentLookup.aiRelianceScore != null) {
+          return;
+        }
         const segDur = currentLookup?.segmentDurationSeconds || 30;
         const total = Math.ceil(duration / segDur);
         const synthSegments = [];
@@ -162,9 +165,14 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
       ? activeVideoElement.duration
       : undefined;
 
+    const timeoutId = setTimeout(() => {
+      isCheckingAutoAnalysis = false;
+    }, 10000);
+
     chrome.runtime.sendMessage(
       { type: 'lookup-video', videoId, duration: videoDur, forceRefresh: true },
       (res) => {
+        clearTimeout(timeoutId);
         isCheckingAutoAnalysis = false;
         if (res && res.ok && res.lookup) {
           const freshLookup = res.lookup as VideoLookupResponseDto;
@@ -236,7 +244,7 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
         renderOnPageBadges(currentLookup);
         applyFiltering(currentLookup);
 
-        if (currentLookup.status === 'complete') {
+        if (currentLookup.status === 'complete' || currentLookup.aiRelianceScore != null) {
           stateMachine.transitionTo('completed');
         } else {
           stateMachine.transitionTo('active_watching');
@@ -313,7 +321,6 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
 
         currentSegmentIndex = segmentScheduler.getSegmentIndex(t);
         const bounds = segmentationStrategy.getSegmentBounds(currentSegmentIndex);
-        mediaAdapter.startSegmentRecording(bounds, t);
       }
 
       // Track playback interval advance
@@ -434,7 +441,7 @@ import { CURRENT_POLICY_VERSION, type UserPreferences, DEFAULT_USER_PREFERENCES 
     const mount = platformAdapter.createBadgeMountPoint(document);
     if (!mount) return;
 
-    if (state === 'analyzed' && currentLookup) {
+    if ((state === 'analyzed' || state === 'partially_analyzed') && currentLookup) {
       renderOnPageBadges(currentLookup);
     } else {
       badgePresenter.renderBadge(mount, state);

@@ -290,6 +290,51 @@ describe('Phase 3: Active-Watch Gating, Identity, State Machine & Transcripts (R
       await expect(repo.set('vid_tainted', taintedLookup)).rejects.toThrow(
         /Privacy Invariant Violation/
       );
+
+      const taintedAudioLookup = {
+        ...mockLookup,
+        rawAudio: 'data:audio/webm;base64,GkXfo59ChoEBQveBA...',
+      } as unknown as VideoLookupResponseDto;
+
+      await expect(repo.set('vid_tainted_audio', taintedAudioLookup)).rejects.toThrow(
+        /Privacy Invariant Violation/
+      );
+    });
+
+    it('safely caches multi-component lookup containing audio mime_type metadata', async () => {
+      const componentLookup: VideoLookupResponseDto = {
+        ...mockLookup,
+        segments: [
+          {
+            index: 0,
+            startSeconds: 0,
+            endSeconds: 30,
+            coverage: 'complete',
+            aiSegmentScore: 0.25,
+            components: [
+              {
+                componentName: 'audio_signal',
+                modality: 'audio',
+                score: 0.5,
+                confidence: 0.6,
+                status: 'SUCCESS',
+                executionTimeMs: 1.2,
+                details: {
+                  chunks_count: 1,
+                  total_duration_seconds: 9.7,
+                  mime_type: 'audio/webm;codecs=opus',
+                },
+                errorMessage: '',
+              },
+            ],
+          },
+        ],
+      };
+
+      await expect(repo.set('vid_component_meta', componentLookup)).resolves.not.toThrow();
+      const retrieved = await repo.get('vid_component_meta');
+      expect(retrieved).not.toBeNull();
+      expect(retrieved?.segments[0].components?.[0].details?.mime_type).toBe('audio/webm;codecs=opus');
     });
   });
 

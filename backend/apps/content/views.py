@@ -9,6 +9,7 @@ import threading
 from pathlib import Path
 from typing import List, Tuple
 from django.db import transaction
+from django.db.models import Sum
 from django.utils import timezone
 from django.conf import settings
 import logging
@@ -53,8 +54,15 @@ class VideoLookupView(APIView):
             except ValueError:
                 video_duration = 0.0
 
+        logger.info("📥 Lookup request for video '%s' (duration_param=%s)", video_id, duration_param)
+
         try:
             video = Video.objects.prefetch_related('segments', 'segments__component_scores').get(video_id=video_id)
+            logger.debug(
+                "  Found video '%s': status=%s, score=%s, label=%s, segments=%d, duration=%.1fs",
+                video_id, video.status, video.ai_reliance_score, video.label,
+                video.segments.count(), video.duration_seconds,
+            )
             if video_duration > 0 and video.duration_seconds <= 0:
                 video.duration_seconds = video_duration
                 video.save(update_fields=['duration_seconds'])
@@ -69,11 +77,20 @@ class VideoLookupView(APIView):
             complete_segments_count = video.segments.filter(coverage_status='complete').count()
             coverage_pct = (complete_segments_count / total_expected_segments * 100.0) if total_expected_segments > 0 else 0.0
 
+            logger.info(
+                "  Coverage: %d/%d segments complete (%.1f%%), threshold=%.0f%%",
+                complete_segments_count, total_expected_segments, coverage_pct, threshold,
+            )
+
             if total_expected_segments > 0 and coverage_pct >= threshold:
                 # Check if analysis is needed: score not yet computed, or unscored complete segments, or pending jobs
                 has_unscored = video.segments.filter(coverage_status='complete', component_scores__isnull=True).exists()
                 has_pending_jobs = InferenceJob.objects.filter(video=video, status='PENDING').exists()
                 needs_analysis = video.ai_reliance_score is None or has_unscored or has_pending_jobs
+                logger.info(
+                    "  Analysis check: needs_analysis=%s (score=%s, has_unscored=%s, has_pending_jobs=%s)",
+                    needs_analysis, video.ai_reliance_score, has_unscored, has_pending_jobs,
+                )
 
                 if needs_analysis:
                     with _active_video_dispatches_lock:
@@ -82,14 +99,24 @@ class VideoLookupView(APIView):
                             _active_video_dispatches.add(video_id)
 
                     if not already_running:
+                        # Mark video as processing before dispatching
+                        if video.status not in ('processing', 'complete'):
+                            video.status = 'processing'
+                            video.save(update_fields=['status'])
+                        logger.info("  🔄 Launching inference dispatch for video '%s'", video_id)
+
                         try:
                             InferenceDispatcher().dispatch_video(video.video_id)
                             video = Video.objects.prefetch_related('segments', 'segments__component_scores').get(video_id=video_id)
+                            logger.info("  ✅ Dispatch completed for video '%s': score=%s, label=%s",
+                                        video_id, video.ai_reliance_score, video.label)
                         except Exception as e:
-                            logger.exception(f"Auto-analysis failed for video {video_id}: {e}")
+                            logger.exception("Auto-analysis failed for video %s: %s", video_id, e)
                         finally:
                             with _active_video_dispatches_lock:
                                 _active_video_dispatches.discard(video_id)
+                    else:
+                        logger.info("  ⏳ Inference dispatch already running for video '%s', skipping", video_id)
 
             serializer = VideoLookupSerializer(video)
             return Response(serializer.data, status=status.HTTP_200_OK)
@@ -141,6 +168,7 @@ class ContributionIngestionView(APIView):
     def post(self, request, video_id: str):
         serializer = ContributionInputSerializer(data=request.data)
         if not serializer.is_valid():
+            logger.warning("📦 Invalid contribution payload for video '%s': %s", video_id, serializer.errors)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         data = serializer.validated_data
@@ -163,6 +191,12 @@ class ContributionIngestionView(APIView):
         frames_data = request.data.get('frames') or []
         audio_data = request.data.get('audioChunks') or request.data.get('audio_chunks') or []
         transcript_data = request.data.get('transcript')
+
+        logger.info(
+            "📦 Contribution '%s' for video '%s' seg #%d [%.1fs-%.1fs]: %d intervals, %d frames, %d audio chunks",
+            contribution_id, video_id, segment_index, seg_start, seg_end,
+            len(raw_intervals), len(frames_data), len(audio_data),
+        )
 
         # Instantiate services
         media_storage = MediaStorageService()
@@ -271,8 +305,27 @@ class ContributionIngestionView(APIView):
                 for a in saved_audio
             )
 
-            segment.frame_count = max(segment.frame_count, len(saved_frames))
-            segment.audio_duration_seconds = max(segment.audio_duration_seconds, audio_dur)
+            # Periodic extension flushes intentionally submit small evidence packages
+            # (often one frame and roughly ten seconds of audio).  Sufficiency is a
+            # segment-level decision, so accumulate contribution evidence instead of
+            # treating each package as a replacement snapshot.
+            prior_frame_count = (
+                Contribution.objects
+                .filter(video=video, segment_index=segment_index)
+                .aggregate(total=Sum('frame_count'))
+                .get('total') or 0
+            )
+            prior_audio_duration = (
+                Contribution.objects
+                .filter(video=video, segment_index=segment_index)
+                .aggregate(total=Sum('audio_duration_seconds'))
+                .get('total') or 0.0
+            )
+            segment.frame_count = int(prior_frame_count) + len(saved_frames)
+            segment.audio_duration_seconds = min(
+                covered_sec,
+                float(prior_audio_duration) + audio_dur,
+            )
             segment.coverage_status = evaluate_segment_sufficiency(
                 covered_duration=covered_sec,
                 seg_duration=(seg_end - seg_start),
@@ -280,6 +333,12 @@ class ContributionIngestionView(APIView):
                 audio_duration=segment.audio_duration_seconds,
             )
             segment.save()
+
+            logger.info(
+                "  Segment #%d sufficiency: status=%s, covered=%.1fs/%.1fs, frames=%d, audio=%.1fs",
+                segment_index, segment.coverage_status, covered_sec, (seg_end - seg_start),
+                segment.frame_count, segment.audio_duration_seconds,
+            )
 
             # Record Contribution
             Contribution.objects.create(
@@ -323,6 +382,11 @@ class ContributionIngestionView(APIView):
                 video.save()
 
             remaining = compute_remaining_intervals(seg_start, seg_end, merged)
+
+            logger.info(
+                "  Video '%s' status after contribution: %s (%d/%d segments, %d remaining intervals)",
+                video_id, video.status, len(all_segments), total_expected, len(remaining),
+            )
 
         # 5. Multimodal Manifest Generation - OUTSIDE database transaction
         manifest_path = manifest_builder.build_segment_manifest(

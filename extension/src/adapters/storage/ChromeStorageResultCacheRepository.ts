@@ -86,7 +86,9 @@ export class ChromeStorageResultCacheRepository {
 
   private assertNoRawMediaLeakage(obj: unknown): void {
     const str = JSON.stringify(obj);
-    if (str.includes('data:image') || str.includes('audio/webm') || str.includes('synthetic_jpeg')) {
+    // Reject raw media payloads (data URLs or synthetic raw buffers)
+    // while permitting technical metadata MIME strings (e.g. 'audio/webm;codecs=opus')
+    if (str.includes('data:image/') || str.includes('data:audio/') || str.includes('data:video/') || str.includes('synthetic_jpeg')) {
       throw new Error('Privacy Invariant Violation: Attempted to persist raw media in result cache storage.');
     }
   }
